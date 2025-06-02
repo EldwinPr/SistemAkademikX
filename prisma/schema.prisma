@@ -1,0 +1,89 @@
+// Simplified Prisma schema for the cryptography project
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  Mahasiswa
+  Dosen_Wali
+  Kepala_Program_Studi
+}
+
+// model user
+model User {
+  id           String  @id @default(cuid())
+  username     String  @unique
+  password     String
+  role         Role
+  fullName     String
+  nim          String?
+  DosenId      String?
+  
+  // rsa key pair
+  publicKey    String?
+  privateKey   String?
+  
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  advisor      User?   @relation("AdvisorStudent", fields: [DosenId], references: [id])
+  students     User[]  @relation("AdvisorStudent")
+  records      Transkrip[]
+  shares       SecretShare[]
+  
+  @@map("users")
+}
+
+// model transkrip
+model Transkrip {
+  id               String   @id @default(cuid())
+  studentId        String
+  
+  // All encrypted data stored as JSON string
+  encryptedData    String   @db.Text
+  digitalSignature String   @db.Text
+  
+  // AES key management
+  keyId           String
+  
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  student         User     @relation(fields: [studentId], references: [id])
+  shares          SecretShare[]
+  
+  @@map("academic_records")
+}
+
+// Secret shares for Shamir's scheme
+model SecretShare {
+  id        String @id @default(cuid())
+  recordId  String // which academic record this share belongs to
+  advisorId String // which advisor holds this share
+  
+  shareX    Int    // X coordinate
+  shareY    String // Y coordinate (big integer as string)
+  
+  // Relations
+  record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  advisor   User          @relation(fields: [advisorId], references: [id])
+  
+  @@unique([recordId, advisorId])
+  @@map("secret_shares")
+}
+
+// Simple session management
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  
+  @@map("sessions")
+}
