@@ -1,9 +1,9 @@
-// src/hooks.server.ts
 import type { Handle } from '@sveltejs/kit';
 import db from '$lib/server/database';
 import { AuthService } from '$lib/services/auth.service';
 import type { User, UserContext } from '$lib/types/auth.types';
 
+// Protected routes that require authentication
 const PROTECTED_ROUTES = [
 	'/dashboard',
 	'/academic',
@@ -12,12 +12,13 @@ const PROTECTED_ROUTES = [
 	'/api/records'
 ];
 
+// Public routes that don't need authentication
 const PUBLIC_ROUTES = [
-	'/',
 	'/auth/login',
 	'/auth/register',
 	'/api/auth/login',
-	'/api/auth/register'
+	'/api/auth/register',
+	'/' // Landing page
 ];
 
 /**
@@ -96,39 +97,42 @@ function redirectToLogin(url: URL): Response {
  * Validate session token directly with database
  */
 async function validateSessionDirectly(sessionToken: string): Promise<User | null> {
-  try {
-    const session = await db.session.findUnique({
-      where: { token: sessionToken }
-    });
+	try {
+		const session = await db.session.findUnique({
+			where: { token: sessionToken }
+		});
 
-    if (!session || session.expiresAt < new Date()) {
-      if (session) {
-        await db.session.delete({ where: { id: session.id } });
-      }
-      return null;
-    }
+		if (!session || session.expiresAt < new Date()) {
+			// Clean up expired session
+			if (session) {
+				await db.session.delete({
+					where: { id: session.id }
+				});
+			}
+			return null;
+		}
 
-    // Separate query for user
-    const user = await db.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        fullName: true,
-        nim: true,
-        DosenId: true,
-        programStudi: true,
-        publicKey: true,
-        createdAt: true
-      }
-    });
+		// Separate query for user
+		const user = await db.user.findUnique({
+			where: { id: session.userId },
+			select: {
+				id: true,
+				username: true,
+				role: true,
+				fullName: true,
+				nim: true,
+				DosenId: true,
+				programStudi: true,
+				publicKey: true,
+				createdAt: true
+			}
+		});
 
-    return user as User;
-  } catch (error) {
-    console.error('Session validation error:', error);
-    return null;
-  }
+		return user as User;
+	} catch (error) {
+		console.error('Session validation error:', error);
+		return null;
+	}
 }
 
 /**
