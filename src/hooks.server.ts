@@ -1,9 +1,9 @@
 // src/hooks.server.ts
-import type { Handle, HandleServerError } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit';
+import db from '$lib/server/database';
 import { AuthService } from '$lib/services/auth.service';
 import type { User, UserContext } from '$lib/types/auth.types';
 
-// Protected routes that require authentication
 const PROTECTED_ROUTES = [
 	'/dashboard',
 	'/academic',
@@ -12,13 +12,12 @@ const PROTECTED_ROUTES = [
 	'/api/records'
 ];
 
-// Public routes that don't need authentication
 const PUBLIC_ROUTES = [
+	'/',
 	'/auth/login',
 	'/auth/register',
 	'/api/auth/login',
-	'/api/auth/register',
-	'/' // Landing page
+	'/api/auth/register'
 ];
 
 /**
@@ -40,8 +39,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	try {
-		// Validate session and get user
-		const user = await validateSession(sessionToken);
+		// Validate session directly with database
+		const user = await validateSessionDirectly(sessionToken);
 		
 		if (!user) {
 			// Invalid session, clear cookie and redirect
@@ -56,7 +55,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event.locals.user = userContext;
 		
 		// Check route-specific permissions
-		const hasAccess = await checkRoutePermissions(url.pathname, userContext);
+		const hasAccess = checkRoutePermissions(url.pathname, userContext);
 		
 		if (!hasAccess) {
 			return new Response('Forbidden', { status: 403 });
@@ -83,13 +82,6 @@ function isPublicRoute(pathname: string): boolean {
 }
 
 /**
- * Check if route is protected
- */
-function isProtectedRoute(pathname: string): boolean {
-	return PROTECTED_ROUTES.some(route => pathname.startsWith(route));
-}
-
-/**
  * Redirect to login page
  */
 function redirectToLogin(url: URL): Response {
@@ -101,34 +93,49 @@ function redirectToLogin(url: URL): Response {
 }
 
 /**
- * Validate session token and return user
+ * Validate session token directly with database
  */
-async function validateSession(sessionToken: string): Promise<User | null> {
-	try {
-		// This would be implemented in your database layer
-		// For now, it's a placeholder that you'll implement in API routes
-		const response = await fetch('/api/auth/validate', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ token: sessionToken })
-		});
-		
-		if (response.ok) {
-			const data = await response.json();
-			return data.user;
-		}
-		
-		return null;
-	} catch {
-		return null;
-	}
+async function validateSessionDirectly(sessionToken: string): Promise<User | null> {
+  try {
+    const session = await db.session.findUnique({
+      where: { token: sessionToken }
+    });
+
+    if (!session || session.expiresAt < new Date()) {
+      if (session) {
+        await db.session.delete({ where: { id: session.id } });
+      }
+      return null;
+    }
+
+    // Separate query for user
+    const user = await db.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        fullName: true,
+        nim: true,
+        DosenId: true,
+        programStudi: true,
+        publicKey: true,
+        createdAt: true
+      }
+    });
+
+    return user as User;
+  } catch (error) {
+    console.error('Session validation error:', error);
+    return null;
+  }
 }
 
 /**
  * Check route-specific permissions using AuthService
  */
-async function checkRoutePermissions(pathname: string, userContext: UserContext): Promise<boolean> {
-	const { user, permissions } = userContext;
+function checkRoutePermissions(pathname: string, userContext: UserContext): boolean {
+	const { permissions } = userContext;
 
 	// Dashboard access
 	if (pathname.startsWith('/dashboard')) {
@@ -164,17 +171,6 @@ async function checkRoutePermissions(pathname: string, userContext: UserContext)
 	// Default: allow access
 	return true;
 }
-
-/**
- * Optional: Handle errors
- */
-export const handleError: HandleServerError = ({ error, event }) => {
-	console.error('SvelteKit error:', error);
-	
-	const e = new Error('Something went wrong');
-	(e as any).code = 'INTERNAL_ERROR';
-	return e;
-};
 
 // Type declaration for event.locals
 declare global {

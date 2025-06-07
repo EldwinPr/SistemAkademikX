@@ -1,14 +1,16 @@
 import type {
 	User,
 	AccessPermission,
-	UserContext
+	UserContext,
+	Role,
+	SafeUser
 } from '../types/auth.types';
 
 export class AuthService {
 	/**
 	 * Get user permissions based on role (RBAC)
 	 */
-	static getUserPermissions(user: User): AccessPermission {
+	static getUserPermissions(user: SafeUser): AccessPermission {
 		const base: AccessPermission = {
 			userId: user.id,
 			role: user.role,
@@ -51,7 +53,7 @@ export class AuthService {
 	/**
 	 * Create user context for authenticated user
 	 */
-	static createUserContext(user: User): UserContext {
+	static createUserContext(user: SafeUser): UserContext {
 		return {
 			user,
 			permissions: this.getUserPermissions(user),
@@ -62,7 +64,7 @@ export class AuthService {
 	/**
 	 * Check if user can access specific record
 	 */
-	static canAccessRecord(user: User, recordStudentId: string, hasDirectKey: boolean): 'DIRECT' | 'GROUP_REQUIRED' | 'DENIED' {
+	static canAccessRecord(user: SafeUser, recordStudentId: string, hasDirectKey: boolean): 'DIRECT' | 'GROUP_REQUIRED' | 'DENIED' {
 		// Student can access own record
 		if (user.role === 'Mahasiswa' && user.id === recordStudentId) {
 			return 'DIRECT';
@@ -89,7 +91,7 @@ export class AuthService {
 	/**
 	 * Check if user can perform action
 	 */
-	static canPerformAction(user: User, action: string): boolean {
+	static canPerformAction(user: SafeUser, action: string): boolean {
 		const permissions = this.getUserPermissions(user);
 
 		switch (action) {
@@ -106,13 +108,6 @@ export class AuthService {
 		}
 	}
     
-	/**
-	 * Helper: Validate study program
-	 */
-	static isValidProgramStudi(program: string): program is 'Teknik_Informatika' | 'Sistem_Teknologi_Informasi' {
-		return program === 'Teknik_Informatika' || program === 'Sistem_Teknologi_Informasi';
-	}
-
 	/**
 	 * Helper: Check if advisor of student
 	 */
@@ -134,5 +129,13 @@ export class AuthService {
 		const expiry = new Date();
 		expiry.setHours(expiry.getHours() + hours);
 		return expiry;
+	}
+
+	/**
+	 * Helper: Remove sensitive data from user
+	 */
+	static toSafeUser(user: User): SafeUser {
+		const { privateKey, ...safeUser } = user;
+		return safeUser;
 	}
 }
