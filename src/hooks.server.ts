@@ -1,7 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import db from '$lib/server/database';
 import { AuthService } from '$lib/services/auth.service';
-import type { User, UserContext } from '$lib/types/auth.types';
+import type { SafeUser, User, UserContext } from '$lib/types/auth.types';
 
 // Protected routes that require authentication
 const PROTECTED_ROUTES = [
@@ -18,7 +18,7 @@ const PUBLIC_ROUTES = [
 	'/auth/register',
 	'/api/auth/login',
 	'/api/auth/register',
-	'/' // Landing page
+	'/'
 ];
 
 /**
@@ -128,7 +128,7 @@ async function validateSessionDirectly(sessionToken: string): Promise<User | nul
 			}
 		});
 
-		return user as User;
+		return user as SafeUser;
 	} catch (error) {
 		console.error('Session validation error:', error);
 		return null;
