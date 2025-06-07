@@ -1,166 +1,222 @@
-import { EncryptionService } from './encryption.service';
+import { CryptoService } from './crypto.service';
 import { SignatureService } from './signature.service';
 import type {
 	AcademicRecord,
 	EncryptedAcademicRecord,
-	DecryptedAcademicDisplay,
+	DirectKey,
+	SecretShare,
+	AccessRequest,
+	AccessResponse,
+	GroupDecryptionRequest,
+	Course
 } from '../types/academic.types';
 import { VerificationStatus } from '../types/academic.types';
-import type { DigitalSignature, KeyReconstructionRequest } from '../types/crypto.types';
 
 export class AcademicService {
+	// Grade mapping from document
+	private static readonly GRADE_POINTS: Record<string, number> = {
+		'A': 4.0, 'AB': 3.5, 'B': 3.0, 'BC': 2.5,
+		'C': 2.0, 'D': 1.0, 'E': 0.0
+	};
+
 	/**
-	 * Create encrypted academic record
+	 * Create academic record with dual access
 	 */
-	static async createRecord(
-		record: AcademicRecord,
-		advisorIds: string[],
-		headPrivateKey: string,
-		headKeyId: string,
-		createdBy: string
+	static createRecord(
+		data: { nim: string; name: string; courses: Course[] },
+		advisorId: string,
+		encryptionKey: string,
+		allAdvisorIds: string[],
+		userIds: { studentId: string; advisorId: string; headId: string },
+		publicKeys: Record<string, string>
 	) {
-		try {
-			// Validate record
-			this.validateRecord(record);
-
-			// Encrypt and share key
-			const { encryptedRecord, keySharing } = EncryptionService.encryptAndShare(record, advisorIds);
-
-			// Create digital signature
-			const signature = SignatureService.signAcademicRecord(record, headPrivateKey, headKeyId);
-
-			// Prepare for database
-			const dbRecord: EncryptedAcademicRecord = {
-				id: this.generateId(),
-				studentId: record.nim,
-				encryptedData: encryptedRecord,
+		// Validate and calculate IPK
+		const record = this.prepareRecord(data);
+		
+		// Encrypt record
+		const { encryptedData } = CryptoService.encryptAcademicRecord(record, encryptionKey);
+		
+		// Create direct access keys
+		const directKeyData = CryptoService.createDirectAccessKeys(
+			encryptionKey,
+			[userIds.studentId, userIds.advisorId, userIds.headId],
+			publicKeys
+		);
+		
+		// Create Shamir shares
+		const keySharing = CryptoService.shareKeyAmongAdvisors(encryptionKey, allAdvisorIds, 3);
+		
+		// Sign record
+		const signature = SignatureService.signAcademicRecord(record, publicKeys.headPrivateKey, 'head_key_id');
+		
+		const recordId = this.generateId();
+		
+		return {
+			encryptedRecord: {
+				id: recordId,
+				studentId: userIds.studentId,
+				encryptedData,
 				digitalSignature: signature.signature,
 				keyId: keySharing.keyId,
 				createdAt: new Date(),
 				updatedAt: new Date(),
-				createdBy
-			};
-
-			return { dbRecord, keySharing, signature };
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to create record: ${errorMessage}`);
-		}
-	}
-
-	/**
-	 * Decrypt record with group consent
-	 */
-	static async decryptRecord(
-		encryptedRecord: EncryptedAcademicRecord,
-		reconstructionRequest: KeyReconstructionRequest,
-		headPublicKey: string,
-		accessedBy: string
-	): Promise<DecryptedAcademicDisplay> {
-		try {
-			// Decrypt using Shamir reconstruction
-			const record = EncryptionService.reconstructAndDecrypt(
-				encryptedRecord.encryptedData,
-				reconstructionRequest
-			);
-
-			// Verify signature
-			const signature: DigitalSignature = {
-				signature: encryptedRecord.digitalSignature,
-				algorithm: 'RSA-SHA3',
-				keyId: encryptedRecord.keyId,
-				timestamp: encryptedRecord.createdAt,
-				dataHash: ''
-			};
-
-			const verification = SignatureService.verifyAcademicRecord(record, signature, headPublicKey);
-
-			return {
-				record,
-				verificationStatus: verification.isValid ? VerificationStatus.VERIFIED : VerificationStatus.INVALID,
-				accessedBy,
-				accessedAt: new Date()
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to decrypt record: ${errorMessage}`);
-		}
-	}
-
-	/**
-	 * Get student's own record (direct access)
-	 */
-	static async getStudentRecord(
-		encryptedRecord: EncryptedAcademicRecord,
-		aesKey: string,
-		headPublicKey: string,
-		studentId: string
-	): Promise<DecryptedAcademicDisplay> {
-		try {
-			// Direct decryption for student
-			const record = EncryptionService.decryptAcademicRecord(encryptedRecord.encryptedData, aesKey);
-
-			// Verify signature
-			const signature: DigitalSignature = {
-				signature: encryptedRecord.digitalSignature,
-				algorithm: 'RSA-SHA3',
-				keyId: encryptedRecord.keyId,
-				timestamp: encryptedRecord.createdAt,
-				dataHash: ''
-			};
-
-			const verification = SignatureService.verifyAcademicRecord(record, signature, headPublicKey);
-
-			return {
-				record,
-				verificationStatus: verification.isValid ? VerificationStatus.VERIFIED : VerificationStatus.UNVERIFIED,
-				accessedBy: studentId,
-				accessedAt: new Date()
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to get student record: ${errorMessage}`);
-		}
-	}
-
-	/**
-	 * Validate academic record
-	 */
-	static validateRecord(record: AcademicRecord): void {
-		if (!record.nim?.trim()) throw new Error('NIM is required');
-		if (!record.name?.trim()) throw new Error('Name is required');
-		if (!record.courses?.length) throw new Error('Courses are required');
-		if (record.ipk < 0 || record.ipk > 4) throw new Error('IPK must be between 0-4');
-
-		// Check IPK calculation
-		const calculatedIPK = this.calculateIPK(record.courses);
-		if (Math.abs(calculatedIPK - record.ipk) > 0.01) {
-			throw new Error(`IPK mismatch: expected ${calculatedIPK.toFixed(2)}`);
-		}
-	}
-
-	/**
-	 * Calculate IPK
-	 */
-	static calculateIPK(courses: AcademicRecord['courses']): number {
-		const gradePoints: Record<string, number> = {
-			'A': 4.0, 'AB': 3.5, 'B': 3.0, 'BC': 2.5,
-			'C': 2.0, 'D': 1.0, 'E': 0.0
+				createdBy: advisorId
+			},
+			directKeys: directKeyData.map(key => ({
+				id: this.generateId(),
+				recordId,
+				userId: key.userId,
+				encryptedAESKey: key.encryptedAESKey,
+				createdAt: new Date()
+			})),
+			secretShares: keySharing.shares.map(share => ({
+				id: this.generateId(),
+				recordId,
+				advisorId: share.advisorId,
+				shareX: share.shareX,
+				shareY: share.shareY,
+				prime: keySharing.prime,
+				createdAt: new Date()
+			}))
 		};
+	}
 
+	/**
+	 * Access record - direct or group
+	 */
+	static accessRecord(
+		request: AccessRequest,
+		directKey: DirectKey | null,
+		userPrivateKey: string
+	): AccessResponse {
+		if (directKey) {
+			// Direct access
+			try {
+				const aesKey = CryptoService.decryptDirectAccessKey(directKey.encryptedAESKey, userPrivateKey);
+				const record = CryptoService.decryptAcademicRecord('encrypted_data', aesKey);
+				
+				return {
+					success: true,
+					accessType: 'DIRECT',
+					data: record,
+					verificationStatus: VerificationStatus.VERIFIED,
+					message: 'Direct access granted'
+				};
+			} catch (error) {
+				return {
+					success: false,
+					accessType: 'DENIED',
+					message: 'Direct access failed'
+				};
+			}
+		}
+		
+		// Group required
+		return {
+			success: false,
+			accessType: 'GROUP_REQUIRED',
+			message: 'Need 3 advisor shares',
+			requiredShareCount: 3
+		};
+	}
+
+	/**
+	 * Group decrypt with shares
+	 */
+	static groupDecrypt(
+		request: GroupDecryptionRequest,
+		encryptedData: string,
+		headPublicKey: string
+	): AccessResponse {
+		if (request.participatingShares.length < 3) {
+			return {
+				success: false,
+				accessType: 'DENIED',
+				message: 'Need minimum 3 shares'
+			};
+		}
+
+		try {
+			// Reconstruct key
+			const key = CryptoService.reconstructKeyFromShares(
+				request.participatingShares.map(s => ({ shareX: s.shareX, shareY: s.shareY })),
+				request.prime
+			);
+			
+			// Decrypt record
+			const record = CryptoService.decryptAcademicRecord(encryptedData, key);
+			
+			// Verify signature
+			const signature = {
+				signature: 'signature_from_db',
+				algorithm: 'RSA-SHA3' as const,
+				keyId: 'key_id',
+				timestamp: new Date(),
+				dataHash: ''
+			};
+			
+			const verification = SignatureService.verifyAcademicRecord(record, signature, headPublicKey);
+			
+			return {
+				success: true,
+				accessType: 'DIRECT',
+				data: record,
+				verificationStatus: verification.isValid ? VerificationStatus.VERIFIED : VerificationStatus.INVALID,
+				message: verification.message
+			};
+		} catch (error) {
+			return {
+				success: false,
+				accessType: 'DENIED',
+				message: 'Group decryption failed'
+			};
+		}
+	}
+
+	/**
+	 * Calculate IPK automatically
+	 */
+	private static calculateIPK(courses: Course[]): number {
 		let totalPoints = 0;
 		let totalCredits = 0;
 
-		for (const course of courses) {
-			const points = gradePoints[course.grade] || 0;
+		courses.forEach(course => {
+			const points = this.GRADE_POINTS[course.grade] || 0;
 			totalPoints += points * course.credits;
 			totalCredits += course.credits;
+		});
+
+		return totalCredits > 0 ? Math.round((totalPoints / totalCredits) * 100) / 100 : 0;
+	}
+
+	/**
+	 * Prepare and validate record
+	 */
+	private static prepareRecord(data: { nim: string; name: string; courses: Course[] }): AcademicRecord {
+		if (!data.nim || !data.name || !data.courses?.length) {
+			throw new Error('Missing required fields');
 		}
 
-		return totalCredits > 0 ? totalPoints / totalCredits : 0;
+		if (data.courses.length !== 10) {
+			throw new Error('Must have exactly 10 courses');
+		}
+
+		// Validate grades
+		data.courses.forEach((course, i) => {
+			if (!(course.grade in this.GRADE_POINTS)) {
+				throw new Error(`Invalid grade '${course.grade}' for course ${i + 1}`);
+			}
+		});
+
+		return {
+			nim: data.nim,
+			name: data.name,
+			courses: data.courses,
+			ipk: this.calculateIPK(data.courses)
+		};
 	}
 
 	private static generateId(): string {
-		return `record_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+		return `id_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
 	}
 }

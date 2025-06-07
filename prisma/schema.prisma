@@ -1,5 +1,3 @@
-// Simplified Prisma schema for the cryptography project
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -15,7 +13,12 @@ enum Role {
   Kepala_Program_Studi
 }
 
-// model user
+enum ProgramStudi {
+  Teknik_Informatika
+  Sistem_Teknologi_Informasi
+}
+
+// User model with study program
 model User {
   id           String  @id @default(cuid())
   username     String  @unique
@@ -24,8 +27,9 @@ model User {
   fullName     String
   nim          String?
   DosenId      String?
+  programStudi ProgramStudi?
   
-  // rsa key pair
+  // RSA key pair for this user
   publicKey    String?
   privateKey   String?
   
@@ -36,43 +40,65 @@ model User {
   students     User[]  @relation("AdvisorStudent")
   records      Transkrip[]
   shares       SecretShare[]
+  directKeys   DirectKey[]
   
+  // Constraints
+  @@unique([role, programStudi])
   @@map("users")
 }
 
-// model transkrip
+// Academic record storage
 model Transkrip {
   id               String   @id @default(cuid())
   studentId        String
   
-  // All encrypted data stored as JSON string
+  // Encrypted data
   encryptedData    String   @db.Text
   digitalSignature String   @db.Text
-  
-  // AES key management
   keyId           String
   
   createdAt       DateTime @default(now())
+  createdBy       String
   
   // Relations
   student         User     @relation(fields: [studentId], references: [id])
-  shares          SecretShare[]
+  shares          SecretShare[]  // For group access
+  directKeys      DirectKey[]    // For direct access
   
   @@map("academic_records")
 }
 
-// Secret shares for Shamir's scheme
-model SecretShare {
+// Direct access keys (student, advisor, head can directly decrypt)
+model DirectKey {
   id        String @id @default(cuid())
-  recordId  String // which academic record this share belongs to
-  advisorId String // which advisor holds this share
-  
-  shareX    Int    // X coordinate
-  shareY    String // Y coordinate (big integer as string)
+  recordId  String
+  userId    String
+  encryptedAESKey String @db.Text
+  createdAt DateTime @default(now())
   
   // Relations
   record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  advisor   User          @relation(fields: [advisorId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  
+  @@unique([recordId, userId]) 
+  @@map("direct_keys")
+}
+
+// Shamir shares for group decryption (other advisors need 3+)
+model SecretShare {
+  id        String @id @default(cuid())
+  recordId  String
+  advisorId String
+  
+  shareX    Int
+  shareY    String
+  prime     String  // Store prime for reconstruction
+  
+  createdAt DateTime @default(now())
+  
+  // Relations
+  record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  advisor   User      @relation(fields: [advisorId], references: [id])
   
   @@unique([recordId, advisorId])
   @@map("secret_shares")

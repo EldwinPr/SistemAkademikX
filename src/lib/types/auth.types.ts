@@ -1,25 +1,31 @@
 export enum Role {
-	STUDENT = 'STUDENT',
-	ADVISOR = 'ADVISOR',
-	HEAD = 'HEAD'
+	STUDENT = 'Mahasiswa',
+	ADVISOR = 'Dosen_Wali', 
+	HEAD = 'Kepala_Program_Studi'
 }
 
-export enum StudyProgram {
-	INFORMATICS = 'INFORMATICS',
-	INFORMATION_SYSTEMS = 'INFORMATION_SYSTEMS'
+export enum ProgramStudi {
+	TEKNIK_INFORMATIKA = 'Teknik_Informatika',
+	SISTEM_TEKNOLOGI_INFORMASI = 'Sistem_Teknologi_Informasi'
 }
 
 export interface User {
 	id: string;
 	username: string;
-	email: string;
 	role: Role;
-	studyProgram?: StudyProgram;
 	fullName: string;
 	nim?: string;
-	advisorId?: string;
+	DosenId?: string; // Advisor ID for students
+	
+	// Study program field - matches schema exactly
+	programStudi?: ProgramStudi;
+	
+	// RSA key pair for encryption/decryption
+	publicKey?: string;
+	privateKey?: string;
+	
 	createdAt: Date;
-	updatedAt: Date;
+	updatedAt?: Date;
 }
 
 export interface AuthSession {
@@ -44,13 +50,24 @@ export interface AuthResult {
 
 export interface AccessPermission {
 	userId: string;
+	role: Role;
+	
+	// Direct access permissions
 	canViewOwnTranscript: boolean;
-	canViewOtherTranscripts: boolean;
-	canDecryptFullRecord: boolean;
-	canCreateRecords: boolean;
-	canSignRecords: boolean;
+	canViewAdviseeTranscripts: boolean; // For advisors
+	canViewAllTranscripts: boolean;     // For heads
+	
+	// Group access permissions
+	canParticipateInGroupDecryption: boolean; // For advisors
+	canInitiateGroupDecryption: boolean;      // For advisors
+	
+	// Administrative permissions
+	canCreateRecords: boolean;    // For advisors
+	canSignRecords: boolean;      // For heads
+	canManageKeys: boolean;       // For heads (admin view)
 }
 
+// Simplified group decryption session
 export interface GroupDecryptionSession {
 	id: string;
 	recordId: string;
@@ -63,6 +80,26 @@ export interface GroupDecryptionSession {
 	completedAt?: Date;
 }
 
-// Utility types
+// User management types - no password for security
 export type CreateUserData = Omit<User, 'id' | 'createdAt' | 'updatedAt'>;
-export type PublicUserInfo = Pick<User, 'id' | 'username' | 'fullName' | 'role' | 'studyProgram'>;
+export type PublicUserInfo = Pick<User, 'id' | 'username' | 'fullName' | 'role' | 'programStudi'>;
+
+// Access control helpers
+export interface UserContext {
+	user: User;
+	permissions: AccessPermission;
+	isAuthenticated: boolean;
+}
+
+export interface AccessCheck {
+	recordId: string;
+	requestingUserId: string;
+	targetStudentId: string;
+	action: 'VIEW' | 'CREATE' | 'SIGN' | 'GROUP_DECRYPT';
+}
+
+export interface AccessResult {
+	allowed: boolean;
+	accessType: 'DIRECT' | 'GROUP_REQUIRED' | 'DENIED';
+	reason: string;
+}

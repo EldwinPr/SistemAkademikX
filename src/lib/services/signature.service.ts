@@ -6,51 +6,41 @@ import type { DigitalSignature, SignatureVerification, HeadKeyPair } from '../ty
 
 export class SignatureService {
 	/**
-	 * Generate HEAD key pair
+	 * Generate HEAD key pair for signing (updated for study program)
 	 */
-	static generateHeadKeyPair(studyProgram: 'INFORMATICS' | 'INFORMATION_SYSTEMS'): HeadKeyPair {
-		try {
-			const keyPair = RSA.generateKeyPair(2048);
-			const keyId = this.generateKeyId(studyProgram);
-			
-			return {
-				keyId,
-				publicKey: RSAUtils.publicKeyToHex(keyPair.publicKey),
-				privateKey: RSAUtils.privateKeyToHex(keyPair.privateKey),
-				keySize: 2048,
-				createdAt: new Date(),
-				studyProgram
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to generate key pair: ${errorMessage}`);
-		}
+	static generateHeadKeyPair(programStudi: 'Teknik_Informatika' | 'Sistem_Teknologi_Informasi'): HeadKeyPair {
+		const keyPair = RSA.generateKeyPair(2048);
+		const keyId = `${programStudi.toLowerCase()}_head_${Date.now()}`;
+		
+		return {
+			keyId,
+			publicKey: RSAUtils.publicKeyToHex(keyPair.publicKey),
+			privateKey: RSAUtils.privateKeyToHex(keyPair.privateKey),
+			keySize: 2048,
+			createdAt: new Date(),
+			programStudi
+		};
 	}
 
 	/**
-	 * Sign academic record
+	 * Sign academic record with HEAD's private key
 	 */
 	static signAcademicRecord(
 		record: AcademicRecord,
 		privateKeyHex: string,
 		keyId: string
 	): DigitalSignature {
-		try {
-			const dataHash = SHA3Utils.hashAcademicRecord(record);
-			const privateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
-			const signature = RSAUtils.signBytes(dataHash, privateKey);
-			
-			return {
-				signature: signature.toString(16),
-				algorithm: 'RSA-SHA3',
-				keyId,
-				timestamp: new Date(),
-				dataHash: SHA3Utils.toHex(dataHash)
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to sign record: ${errorMessage}`);
-		}
+		const dataHash = SHA3Utils.hashAcademicRecord(record);
+		const privateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
+		const signature = RSAUtils.signBytes(dataHash, privateKey);
+		
+		return {
+			signature: signature.toString(16),
+			algorithm: 'RSA-SHA3',
+			keyId,
+			timestamp: new Date(),
+			dataHash: SHA3Utils.toHex(dataHash)
+		};
 	}
 
 	/**
@@ -65,7 +55,7 @@ export class SignatureService {
 			const currentHash = SHA3Utils.hashAcademicRecord(record);
 			const currentHashHex = SHA3Utils.toHex(currentHash);
 			
-			// Check hash integrity
+			// Check if record was modified
 			if (currentHashHex !== digitalSignature.dataHash) {
 				return {
 					isValid: false,
@@ -86,35 +76,29 @@ export class SignatureService {
 				keyId: digitalSignature.keyId
 			};
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
 			return {
 				isValid: false,
-				message: `Verification failed: ${errorMessage}`,
+				message: `Verification failed: ${error}`,
 				verifiedAt: new Date()
 			};
 		}
 	}
 
 	/**
-	 * Sign any data
+	 * Sign any data (for other use cases)
 	 */
 	static signData(data: string | Uint8Array, privateKeyHex: string, keyId: string): DigitalSignature {
-		try {
-			const dataHash = SHA3.sha256(data);
-			const privateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
-			const signature = RSAUtils.signBytes(dataHash, privateKey);
-			
-			return {
-				signature: signature.toString(16),
-				algorithm: 'RSA-SHA3',
-				keyId,
-				timestamp: new Date(),
-				dataHash: SHA3Utils.toHex(dataHash)
-			};
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to sign data: ${errorMessage}`);
-		}
+		const dataHash = SHA3.sha256(data);
+		const privateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
+		const signature = RSAUtils.signBytes(dataHash, privateKey);
+		
+		return {
+			signature: signature.toString(16),
+			algorithm: 'RSA-SHA3',
+			keyId,
+			timestamp: new Date(),
+			dataHash: SHA3Utils.toHex(dataHash)
+		};
 	}
 
 	/**
@@ -148,19 +132,11 @@ export class SignatureService {
 				keyId: digitalSignature.keyId
 			};
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
 			return {
 				isValid: false,
-				message: `Verification failed: ${errorMessage}`,
+				message: `Verification failed: ${error}`,
 				verifiedAt: new Date()
 			};
 		}
-	}
-
-	private static generateKeyId(studyProgram: string): string {
-		const prefix = studyProgram === 'INFORMATICS' ? 'inf' : 'sis';
-		const timestamp = Date.now().toString(36);
-		const random = BBSUtils.generateSecureHex(4);
-		return `${prefix}_head_${timestamp}_${random}`;
 	}
 }
