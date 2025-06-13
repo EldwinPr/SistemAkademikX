@@ -1,26 +1,17 @@
+<!-- src/routes/dashboard/+page.svelte -->
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
-	import { VerificationStatus } from '$lib/types/academic.types';
-	import TranscriptInputForm from '../../components/TranscriptInputForm.svelte';
+	import StudentDashboard from '../../components/dashboards/StudentDashboard.svelte';
+	import AdvisorDashboard from '../../components/dashboards/AdvisorDashboard.svelte';
+	import HeadDashboard from '../../components/dashboards/HeadDashboard.svelte';
 
 	export let data: PageData;
 	export let form: ActionData;
 
-	// State management for different views
-	let showInputForm = false;
-	let showGroupDecryptForm = false;
-	let showAllTranscriptsView = false;
-	let showSigningView = false;
-	let showPdfView = false;
-
-	// Data from page load
 	$: user = data.userContext.user;
-	$: students = data.students;
-	$: allRecords = data.allRecords;
-	$: allAdvisors = data.allAdvisors;
-	$: programRecords = data.programRecords;
+	$: userRole = user.role;
 
-	function translateRole(role: string): string {
+	function getRoleDisplayName(role: string): string {
 		switch (role) {
 			case 'Mahasiswa': return 'Mahasiswa';
 			case 'Dosen_Wali': return 'Dosen Wali';
@@ -29,9 +20,13 @@
 		}
 	}
 
-	// Close input form when form submission is successful
-	$: if (form && 'success' in form && form.success) {
-		showInputForm = false;
+	function getProgramDisplayName(program: string | null): string {
+		if (!program) return '';
+		switch (program) {
+			case 'Teknik_Informatika': return 'Teknik Informatika';
+			case 'Sistem_Teknologi_Informasi': return 'Sistem dan Teknologi Informasi';
+			default: return program;
+		}
 	}
 </script>
 
@@ -39,143 +34,76 @@
 	<title>Dashboard - Sistem Akademik X</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-	<div class="mx-auto max-w-7xl">
+<div class="min-h-screen bg-gray-50">
+	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<!-- Header -->
-		<header class="flex items-center justify-between border-b border-gray-200 pb-6">
+		<header class="flex items-center justify-between border-b border-gray-200 py-6">
 			<div>
-				<h1 class="text-3xl font-bold tracking-tight text-gray-900">Sistem Akademik X</h1>
-				<p class="mt-1 text-lg text-gray-600">Dashboard</p>
+				<h1 class="text-3xl font-bold tracking-tight text-gray-900">
+					Sistem Akademik X
+				</h1>
+				<p class="mt-1 text-lg text-gray-600">
+					Dashboard - {getRoleDisplayName(userRole)}
+				</p>
+				{#if user.programStudi}
+					<p class="text-sm text-gray-500">
+						{getProgramDisplayName(user.programStudi)}
+					</p>
+				{/if}
 			</div>
-			<a 
-				href="/api/auth/logout" 
-				class="rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-			>
-				Logout
-			</a>
+			<div class="flex items-center gap-4">
+				<span class="text-sm text-gray-600">
+					{user.fullName}
+				</span>
+				<a 
+					href="/api/auth/logout" 
+					class="rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+				>
+					Logout
+				</a>
+			</div>
 		</header>
 
-		<main class="mt-8">
-			<!-- Success/Error Messages -->
-			{#if form?.message}
-				<div class="mb-4 rounded-md bg-green-100 p-4 text-sm text-green-700">
+		<!-- Main Content -->
+		<main class="py-8">
+			<!-- Global Success/Error Messages -->
+			{#if form && 'message' in form}
+				<div class="rounded-md bg-green-100 p-4 text-sm text-green-700">
 					{form.message}
 				</div>
 			{/if}
-			{#if form?.error}
-				<div class="mb-4 rounded-md bg-red-100 p-4 text-sm text-red-700">
+			{#if form && 'error' in form}
+				<div class="rounded-md bg-red-100 p-4 text-sm text-red-700">
 					{form.error}
 				</div>
 			{/if}
 
-			<!-- Transcript Input Form Component -->
-			<TranscriptInputForm 
-				{students}
-				bind:showForm={showInputForm}
-			/>
+			{#if form?.error}
+				<div class="mb-6 rounded-md bg-red-50 border border-red-200 p-4">
+					<div class="flex items-center">
+						<svg class="h-5 w-5 text-red-400 mr-2" viewBox="0 0 20 20" fill="currentColor">
+							<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+						</svg>
+						<span class="text-sm font-medium text-red-800">{form.error}</span>
+					</div>
+				</div>
+			{/if}
 
-			<!-- Main Dashboard Content -->
-			<div class="bg-white p-6 shadow-lg sm:rounded-lg sm:p-8">
-				<div class="mb-6">
-					<h2 class="text-2xl font-semibold leading-7 text-gray-800">
-						Selamat Datang, {user.fullName}!
-					</h2>
-					<p class="mt-2 text-base text-gray-600">
-						Anda masuk sebagai: 
-						<span class="font-bold text-indigo-700">{translateRole(user.role)}</span>
+			<!-- Role-specific Dashboard Components -->
+			{#if userRole === 'Mahasiswa'}
+				<StudentDashboard {data} {form} />
+			{:else if userRole === 'Dosen_Wali'}
+				<AdvisorDashboard {data} {form} />
+			{:else if userRole === 'Kepala_Program_Studi'}
+				<HeadDashboard {data} {form} />
+			{:else}
+				<div class="bg-white rounded-lg shadow p-6">
+					<h2 class="text-xl font-semibold text-gray-900">Peran Tidak Dikenali</h2>
+					<p class="mt-2 text-gray-600">
+						Peran pengguna "{userRole}" tidak dikenali oleh sistem.
 					</p>
 				</div>
-
-				<div>
-					<h3 class="text-xl font-semibold leading-6 text-gray-800">Menu Akses Anda</h3>
-					<div class="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-						
-						<!-- Student Menu -->
-						{#if user.role === 'Mahasiswa'}
-							<div class="overflow-hidden rounded-lg bg-indigo-50 p-5 shadow">
-								<h4 class="truncate text-lg font-medium text-indigo-900">Lihat Transkrip</h4>
-								<p class="mt-1 text-sm text-indigo-800">Akses data transkrip akademik Anda.</p>
-								<form method="POST" action="?/viewMyTranscript" class="inline">
-									<button type="submit" class="mt-4 font-semibold text-indigo-600 hover:text-indigo-800">
-										Buka Transkrip &rarr;
-									</button>
-								</form>
-							</div>
-						{/if}
-
-						<!-- Advisor Menu -->
-						{#if user.role === 'Dosen_Wali'}
-							<div class="overflow-hidden rounded-lg bg-blue-50 p-5 shadow">
-								<h4 class="truncate text-lg font-medium text-blue-900">Input Data Mahasiswa</h4>
-								<p class="mt-1 text-sm text-blue-800">Masukkan data nilai mahasiswa.</p>
-								<button 
-									type="button" 
-									on:click={() => (showInputForm = true)} 
-									class="mt-4 inline-block font-semibold text-blue-600 hover:text-blue-800"
-								>
-									Mulai Input &rarr;
-								</button>
-							</div>
-
-							<div class="overflow-hidden rounded-lg bg-yellow-50 p-5 shadow">
-								<h4 class="truncate text-lg font-medium text-yellow-900">Dekripsi Grup</h4>
-								<p class="mt-1 text-sm text-yellow-800">Buka data transkrip bersama.</p>
-								<button 
-									type="button" 
-									on:click={() => (showGroupDecryptForm = true)} 
-									class="mt-4 inline-block font-semibold text-yellow-600 hover:text-yellow-800"
-								>
-									Mulai Proses &rarr;
-								</button>
-							</div>
-						{/if}
-
-						<!-- Head Menu -->
-						{#if user.role === 'Kepala_Program_Studi'}
-							<div class="overflow-hidden rounded-lg bg-purple-50 p-5 shadow">
-								<h4 class="truncate text-lg font-medium text-purple-900">Lihat Semua Data</h4>
-								<p class="mt-1 text-sm text-purple-800">Akses seluruh transkrip prodi.</p>
-								<button 
-									type="button" 
-									on:click={() => (showAllTranscriptsView = true)} 
-									class="mt-4 inline-block font-semibold text-purple-600 hover:text-purple-800"
-								>
-									Akses Data &rarr;
-								</button>
-							</div>
-
-							<div class="overflow-hidden rounded-lg bg-red-50 p-5 shadow">
-								<h4 class="truncate text-lg font-medium text-red-900">Tanda Tangan Digital</h4>
-								<p class="mt-1 text-sm text-red-800">Tanda tangani data akademik.</p>
-								<button 
-									type="button" 
-									on:click={() => (showSigningView = true)} 
-									class="mt-4 inline-block font-semibold text-red-600 hover:text-red-800"
-								>
-									Buka Menu &rarr;
-								</button>
-							</div>
-						{/if}
-					</div>
-
-					<!-- General Actions -->
-					<div class="mt-6 border-t pt-6">
-						<h3 class="text-lg font-semibold leading-6 text-gray-800">Aksi Umum</h3>
-						<div class="mt-4">
-							<button 
-								type="button" 
-								on:click={() => showPdfView = true} 
-								class="rounded-md bg-green-50 px-3 py-2 text-sm font-semibold text-green-800 shadow-sm hover:bg-green-100"
-							>
-								Cetak Transkrip ke PDF
-							</button>
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Other modals/forms would go here -->
-			<!-- You can create similar components for Group Decrypt, PDF View, etc. -->
+			{/if}
 		</main>
 	</div>
 </div>

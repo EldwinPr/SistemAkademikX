@@ -102,7 +102,7 @@
 				<div class="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
 					<h3 class="text-sm font-medium text-blue-800 mb-2">Pilih Cepat (Test):</h3>
 					<select 
-						on:change={(e) => selectUser(testUsers[e.target.selectedIndex - 1])}
+						on:change={(e) => selectUser(testUsers[(e.target as HTMLSelectElement).selectedIndex - 1])}
 						class="w-full text-sm border border-blue-300 rounded-md px-3 py-2 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
 					>
 						<option value="">-- Pilih pengguna test --</option>
