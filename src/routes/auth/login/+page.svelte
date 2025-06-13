@@ -1,3 +1,4 @@
+<!-- src/routes/auth/login/+page.svelte -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -10,7 +11,25 @@
 	let error = '';
 	let success = '';
 
+	// Test users from seed
+	const testUsers = [
+		{ username: 'KaprodiIF', password: 'admin123', role: 'Kaprodi IF' },
+		{ username: 'KaprodiSTI', password: 'admin123', role: 'Kaprodi STI' },
+		{ username: 'advisor1', password: 'admin123', role: 'Dosen Wali 1' },
+		{ username: 'advisor2', password: 'admin123', role: 'Dosen Wali 2' },
+		{ username: 'advisor3', password: 'admin123', role: 'Dosen Wali 3' },
+		{ username: 'advisor4', password: 'admin123', role: 'Dosen Wali 4' },
+		{ username: 'advisor5', password: 'admin123', role: 'Dosen Wali 5' },
+		{ username: 'student1', password: 'admin123', role: 'Mahasiswa IF' },
+		{ username: 'student2', password: 'admin123', role: 'Mahasiswa STI' }
+	];
+
 	$: redirectTo = $page.url.searchParams.get('redirect') || '/';
+
+	function selectUser(user: any) {
+		username = user.username;
+		password = user.password;
+	}
 
 	async function handleLogin() {
 		if (!username || !password) {
@@ -77,6 +96,20 @@
 					<p class="mt-2 text-center text-sm text-gray-600">
 						Masuk untuk mengakses akun Anda
 					</p>
+				</div>
+
+				<!-- Quick Select Dropdown -->
+				<div class="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+					<h3 class="text-sm font-medium text-blue-800 mb-2">Pilih Cepat (Test):</h3>
+					<select 
+						on:change={(e) => selectUser(testUsers[e.target.selectedIndex - 1])}
+						class="w-full text-sm border border-blue-300 rounded-md px-3 py-2 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+					>
+						<option value="">-- Pilih pengguna test --</option>
+						{#each testUsers as user}
+							<option value={user.username}>{user.role} ({user.username})</option>
+						{/each}
+					</select>
 				</div>
 
 				<form class="mt-8 space-y-6" on:submit|preventDefault={handleLogin}>
@@ -159,8 +192,8 @@
 					<div class="text-xs text-gray-600 space-y-1">
 						<p><strong>Kaprodi IF:</strong> KaprodiIF / admin123</p>
                         <p><strong>Kaprodi STI:</strong> KaprodiSTI / admin123</p>
-						<p><strong>Dosen Wali:</strong> advisor1 / admin123</p>
-						<p><strong>Mahasiswa:</strong> student1 / admin123</p>
+						<p><strong>Dosen Wali:</strong> advisor1-5 / admin123</p>
+						<p><strong>Mahasiswa:</strong> student1-2 / admin123</p>
 					</div>
 				</div>
 			</div>
