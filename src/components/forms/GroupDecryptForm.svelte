@@ -4,9 +4,11 @@
 
 	export let showForm = false;
 	export let allRecords: any[] = [];
-	export let allAdvisors: any[] = [];
+	//export let allAdvisors: any[] = [];
 	export let form: any = null;
 	export let currentUser: any = null; // Pass current user from parent
+
+	let availableAdvisors: any[] = [];
 
 	let selectedRecordId = '';
 	let userShare = '';
@@ -14,6 +16,25 @@
 	$: if (selectedRecordId) {
 		fetchUserShare(selectedRecordId);
 	}
+	onMount(() => {
+        fetchAdvisors();
+    });
+
+    async function fetchAdvisors() {
+        try {
+            const response = await fetch('/api/users/advisors');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    availableAdvisors = data.advisors;
+                }
+            } else {
+                console.error('Failed to fetch advisors list');
+            }
+        } catch (error) {
+            console.error('Error fetching advisors:', error);
+        }
+    }
 
 	async function fetchUserShare(recordId: string) {
 		try {
@@ -125,7 +146,7 @@
 											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
 										>
 											<option disabled selected value="">-- Pilih Dosen Wali ke-2 --</option>
-											{#each allAdvisors as advisor}
+											{#each availableAdvisors as advisor}
 												{#if advisor.id !== currentUser?.id}
 													<option value={advisor.id}>{advisor.fullName}</option>
 												{/if}
@@ -153,7 +174,7 @@
 											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
 										>
 											<option disabled selected value="">-- Pilih Dosen Wali ke-3 --</option>
-											{#each allAdvisors as advisor}
+											{#each availableAdvisors as advisor}
 												{#if advisor.id !== currentUser?.id}
 													<option value={advisor.id}>{advisor.fullName}</option>
 												{/if}

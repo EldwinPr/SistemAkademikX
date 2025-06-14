@@ -8,7 +8,7 @@
 
 	$: user = data.userContext.user;
 	$: students = data.students || [];
-	$: allAdvisors = data.allAdvisors || [];
+	//$: allAdvisors = data.allAdvisors || [];
 	$: allRecords = data.allRecords || [];
 
 	// Form visibility states
@@ -42,7 +42,6 @@
 	<!-- Group Decrypt Form -->
 	<GroupDecryptForm 
 		{allRecords} 
-		{allAdvisors} 
 		{form}
 		currentUser={user}
 		bind:showForm={showGroupDecryptForm} 
