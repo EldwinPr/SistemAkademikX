@@ -2,14 +2,16 @@
 	import TranscriptInputForm from '../forms/TranscriptInputForm.svelte';
 	import GroupDecryptForm from '../forms/GroupDecryptForm.svelte';
 	import PDFForm from '../forms/PDFForm.svelte';
+	import TranscriptViewer from '../shared/TranscriptViewer.svelte';
+	import { VerificationStatus } from '$lib/types/academic.types';
 
 	export let data: any;
 	export let form: any;
 
 	$: user = data.userContext.user;
 	$: students = data.adviseeStudents || [];
-	//$: allAdvisors = data.allAdvisors || [];
 	$: allRecords = data.allRecords || [];
+	$: allStudentsWithTranscripts = data.allStudentsWithTranscripts || [];
 
 	// Form visibility states
 	let showInputForm = false;
@@ -17,9 +19,29 @@
 	let showPdfForm = false;
 	let showStudentsView = false;
 
-	// Close input form on success
-	$: if (form && 'success' in form && form.success) {
+	// Transcript viewer state
+	let showTranscriptModal = false;
+	let viewedTranscript: any = null;
+
+	// Close input form on success (only for input actions)
+	$: if (form && 'success' in form && form.success && !form.groupDecryptSuccess && !form.record) {
 		showInputForm = false;
+	}
+
+	// Handle view record response for advisor - but don't interfere with group decrypt
+	$: if (form && 'success' in form && form.success && form.record && !form.groupDecryptSuccess) {
+		viewedTranscript = {
+			...form.record,
+			verificationStatus: form.verification?.isValid ? VerificationStatus.VERIFIED : VerificationStatus.UNVERIFIED,
+			verificationMessage: form.verification?.message || 'Unknown status'
+		};
+		showTranscriptModal = true;
+		showStudentsView = false;
+	}
+
+	function closeTranscriptView() {
+		viewedTranscript = null;
+		showTranscriptModal = false;
 	}
 </script>
 
@@ -41,10 +63,10 @@
 
 	<!-- Group Decrypt Form -->
 	<GroupDecryptForm 
-		{allRecords} 
-		{form}
-		currentUser={user}
-		bind:showForm={showGroupDecryptForm} 
+    {allStudentsWithTranscripts}
+    {form}
+    currentUser={user}
+    bind:showForm={showGroupDecryptForm} 
 	/>
 
 	<!-- PDF Form -->
@@ -53,6 +75,32 @@
 		userRole="Dosen_Wali"
 		bind:showForm={showPdfForm}
 	/>
+
+	<!-- Transcript Detail Modal -->
+	{#if showTranscriptModal && viewedTranscript}
+		<div class="fixed inset-0 z-50 overflow-y-auto">
+			<div class="flex min-h-screen items-center justify-center p-4">
+				<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={closeTranscriptView}></div>
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh]">
+					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
+						<div class="flex items-center justify-between">
+							<h3 class="text-xl font-semibold text-gray-900">Detail Transkrip Mahasiswa</h3>
+							<button type="button" class="text-gray-400 hover:text-gray-600" on:click={closeTranscriptView}>
+								<span class="text-2xl">&times;</span>
+							</button>
+						</div>
+					</div>
+					<div class="p-6 max-h-[80vh] overflow-y-auto">
+						<TranscriptViewer 
+							transcript={viewedTranscript} 
+							showTitle={false}
+							allowClose={false}
+						/>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Students View Modal -->
 	{#if showStudentsView}
@@ -101,13 +149,61 @@
 													{/if}
 												</td>
 												<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-													<button 
-														type="button" 
-														on:click={() => {showStudentsView = false; showInputForm = true;}}
-														class="text-indigo-600 hover:text-indigo-900"
-													>
-														Input Data
-													</button>
+													<div class="flex gap-2">
+														<!-- Input Data Button -->
+														<button 
+															type="button" 
+															on:click={() => {showStudentsView = false; showInputForm = true;}}
+															class="text-indigo-600 hover:text-indigo-900 px-2 py-1 border border-indigo-300 rounded text-xs"
+														>
+															Input Data
+														</button>
+														
+														<!-- View Transcript Button - Show dropdown if multiple transcripts -->
+														{#if student.hasTranscript}
+															{#if student.transcriptRecords && student.transcriptRecords.length === 1}
+																<!-- Single transcript - direct button -->
+																<form method="POST" action="?/viewRecord" class="inline">
+																	<input type="hidden" name="recordId" value={student.transcriptRecords[0].id} />
+																	<button 
+																		type="submit" 
+																		class="text-blue-600 hover:text-blue-900 px-2 py-1 border border-blue-300 rounded text-xs"
+																	>
+																		Lihat Transkrip
+																	</button>
+																</form>
+															{:else if student.transcriptRecords && student.transcriptRecords.length > 1}
+																<!-- Multiple transcripts - dropdown -->
+																<div class="relative inline-block">
+																	<select 
+																		class="text-blue-600 border border-blue-300 rounded text-xs px-2 py-1 pr-6"
+																		on:change={(e) => {
+																			const recordId = (e.target as HTMLSelectElement).value;
+																			if (recordId) {
+																				const form = document.createElement('form');
+																				form.method = 'POST';
+																				form.action = '?/viewRecord';
+																				const input = document.createElement('input');
+																				input.type = 'hidden';
+																				input.name = 'recordId';
+																				input.value = recordId;
+																				form.appendChild(input);
+																				document.body.appendChild(form);
+																				form.submit();
+																			}
+																		}}
+																	>
+																		<option value="">Pilih Transkrip...</option>
+																		{#each student.transcriptRecords as record, index}
+																			<option value={record.id}>
+																				Transkrip {index + 1} ({new Date(record.createdAt).toLocaleDateString()})
+																			</option>
+																		{/each}
+																	</select>
+																</div>
+															{/if}
+														{/if}
+													</div>
 												</td>
 											</tr>
 										{/each}

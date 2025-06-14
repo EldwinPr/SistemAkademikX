@@ -22,12 +22,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const dashboardData = {
 		userContext: locals.user,
 		myRecords: [] as any[],
+		myTranscriptsWithDetails: [] as any[],
 		adviseeStudents: [] as User[],
 		allRecords: [] as any[],
 		allAdvisors: [] as User[],
 		allStudents: [] as User[],
 		programRecords: [] as any[],
-		headKeys: null as any
+		headKeys: null as any,
+		allStudentsWithTranscripts: [] as any[]
 	};
 
 	try {
@@ -36,19 +38,36 @@ export const load: PageServerLoad = async ({ locals }) => {
 				where: { studentId: userId },
 				orderBy: { createdAt: 'desc' }
 			});
+
+			// Also add this for student dropdown selection
+			dashboardData.myTranscriptsWithDetails = await db.transkrip.findMany({
+				where: { studentId: userId },
+				select: {
+					id: true,
+					createdAt: true,
+					digitalSignature: true
+				},
+				orderBy: { createdAt: 'desc' }
+			});
 		} else if (role === 'Dosen_Wali') {
-			const studentsWithCounts = await db.user.findMany({
+			// Get students with ALL their transcript records
+			const studentsWithRecords = await db.user.findMany({
 				where: { DosenId: userId, role: 'Mahasiswa' },
 				include: {
-				_count: {
-					select: { records: true }
+					records: {
+						select: { id: true, createdAt: true },
+						orderBy: { createdAt: 'desc' }
+					},
+					_count: {
+						select: { records: true }
+					}
 				}
-			}
 			});
 
-			dashboardData.adviseeStudents = studentsWithCounts.map(student => ({
+			dashboardData.adviseeStudents = studentsWithRecords.map(student => ({
 				...student,
-				hasTranscript: student._count.records > 0
+				hasTranscript: student._count.records > 0,
+				transcriptRecords: student.records // Include all records for selection
 			}));
 
 			dashboardData.allAdvisors = await db.user.findMany({ where: { role: 'Dosen_Wali' } });
@@ -56,6 +75,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 			dashboardData.allRecords = await db.transkrip.findMany({
 				orderBy: { createdAt: 'desc' },
 				include: { student: { select: { fullName: true, nim: true } } }
+			});
+
+			dashboardData.allStudentsWithTranscripts = await db.user.findMany({
+				where: { role: 'Mahasiswa' },
+				select: {
+					id: true,
+					fullName: true,
+					nim: true,
+					records: {
+						select: {
+							id: true,
+							createdAt: true
+						},
+						orderBy: { createdAt: 'desc' }
+					}
+				},
+				orderBy: { fullName: 'asc' }
 			});
 		} else if (role === 'Kepala_Program_Studi') {
  
@@ -185,8 +221,7 @@ export const actions: Actions = {
 				if (u.publicKey) publicKeys[u.id] = u.publicKey;
 			});
 
-			publicKeys.headPrivateKey = head.privateKey;
-
+			// ⭐ NO private key needed - service creates unsigned records by default
 			const { encryptedRecord, directKeys, secretShares } = AcademicService.createRecord(
 				recordData,
 				locals.user.user.id,
@@ -413,74 +448,84 @@ export const actions: Actions = {
 			const formData = await request.formData();
 			const recordId = formData.get('recordId') as string;
 			
-			// Get individual share data from form
-			const advisorId1 = formData.get('advisorId1') as string;
-			const shareY1 = formData.get('shareY1') as string;
-			const advisorId2 = formData.get('advisorId2') as string;
-			const shareY2 = formData.get('shareY2') as string;
-			const advisorId3 = formData.get('advisorId3') as string;
-			const shareY3 = formData.get('shareY3') as string;
+			// Get the 3 shares from simplified form
+			const share1X = formData.get('share1X') as string;
+			const share1Y = formData.get('share1Y') as string;
+			const share2X = formData.get('share2X') as string;
+			const share2Y = formData.get('share2Y') as string;
+			const share3X = formData.get('share3X') as string;
+			const share3Y = formData.get('share3Y') as string;
 
 			// Validate required fields
-			if (!recordId || !advisorId1 || !shareY1 || !advisorId2 || !shareY2 || !advisorId3 || !shareY3) {
-				return fail(400, { error: 'Record ID and all 3 advisor shares are required.' });
+			if (!recordId || !share1X || !share1Y || !share2X || !share2Y || !share3X || !share3Y) {
+				return fail(400, { error: 'Record ID and all 3 shares (X,Y coordinates) are required.' });
 			}
 
-			// Get database shares to validate 
-			const dbShares = await db.secretShare.findMany({
-				where: { 
-					recordId,
-					advisorId: { in: [advisorId1, advisorId2, advisorId3] }
-				}
-			});
-
-			if (dbShares.length < 3) {
-				return fail(400, { error: `Only found ${dbShares.length} shares in database. Need 3 shares for reconstruction.` });
-			}
-
-			const shareMap = new Map(dbShares.map(s => [s.advisorId, s]));
-			
-			const submittedShares = [
-				{ advisorId: advisorId1, shareY: shareY1 },
-				{ advisorId: advisorId2, shareY: shareY2 },
-				{ advisorId: advisorId3, shareY: shareY3 }
+			// Convert X coordinates to numbers
+			const shares = [
+				{ shareX: parseInt(share1X), shareY: share1Y },
+				{ shareX: parseInt(share2X), shareY: share2Y },
+				{ shareX: parseInt(share3X), shareY: share3Y }
 			];
 
-			const validatedShares: { shareX: number; shareY: string }[] = [];
-
-			for (const submitted of submittedShares) {
-				const dbShare = shareMap.get(submitted.advisorId);
-				
-				if (!dbShare) {
-					return fail(400, { error: `No share found for advisor ${submitted.advisorId} in this record.` });
+			// Validate X coordinates are valid numbers
+			for (let i = 0; i < shares.length; i++) {
+				if (isNaN(shares[i].shareX) || shares[i].shareX < 1) {
+					return fail(400, { error: `Invalid X coordinate for share ${i + 1}. Must be a positive number.` });
 				}
-				
-				if (dbShare.shareY !== submitted.shareY) {
-					return fail(400, { error: `Invalid share provided for advisor ${submitted.advisorId}. Share does not match database.` });
+				if (!shares[i].shareY || shares[i].shareY.trim() === '') {
+					return fail(400, { error: `Invalid Y coordinate for share ${i + 1}. Cannot be empty.` });
 				}
-				
-				validatedShares.push({
-					shareX: dbShare.shareX,
-					shareY: dbShare.shareY
-				});
 			}
 
-			const prime = dbShares[0].prime; // All shares have same prime
-
-			// Reconstruct AES key using validated shares
-			const aesKey = CryptoService.reconstructKeyFromShares(validatedShares, prime);
-
-			// Get and decrypt the academic record
+			// Get the record to find the prime number
 			const record = await db.transkrip.findUnique({
 				where: { id: recordId },
-				include: { student: { select: { programStudi: true, fullName: true, nim: true } } }
+				include: { 
+					student: { select: { programStudi: true, fullName: true, nim: true } },
+					shares: { 
+						select: { prime: true },
+						take: 1 // Just need one share to get the prime
+					}
+				}
 			});
 
 			if (!record) {
 				return fail(404, { error: 'Academic record not found.' });
 			}
 
-			const decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
+			if (!record.shares || record.shares.length === 0) {
+				return fail(400, { error: 'No shares found for this record. Cannot perform group decryption.' });
+			}
+
+			const prime = record.shares[0].prime;
+
+			// Reconstruct AES key using the 3 shares
+			const validatedShares = shares.map(share => ({
+				shareX: share.shareX,
+				shareY: share.shareY
+			}));
+
+			let aesKey: string;
+			try {
+				aesKey = CryptoService.reconstructKeyFromShares(validatedShares, prime);
+			} catch (reconstructError) {
+				console.error('Key reconstruction failed:', reconstructError);
+				return fail(400, { 
+					error: 'Failed to reconstruct encryption key. Please verify that all shares are correct and try again.' 
+				});
+			}
+
+			// Decrypt the academic record
+			let decryptedRecord;
+			try {
+				decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
+			} catch (decryptError) {
+				console.error('Record decryption failed:', decryptError);
+				return fail(400, { 
+					error: 'Failed to decrypt academic record. The reconstructed key may be incorrect.' 
+				});
+			}
 
 			// Get program head for signature verification
 			const head = await db.user.findFirst({
@@ -522,7 +567,7 @@ export const actions: Actions = {
 					name: record.student.fullName,
 					nim: record.student.nim
 				},
-				message: `Group decryption successful for ${record.student.fullName} (${record.student.nim}).`
+				message: `Group decryption successful for ${record.student.fullName} (${record.student.nim}). Key reconstructed from 3 shares.`
 			};
 
 		} catch (error: any) {

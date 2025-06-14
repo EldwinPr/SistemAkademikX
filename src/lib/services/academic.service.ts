@@ -46,9 +46,6 @@ export class AcademicService {
 		// Create Shamir shares
 		const keySharing = CryptoService.shareKeyAmongAdvisors(encryptionKey, allAdvisorIds, 3);
 		
-		// Sign record
-		const signature = SignatureService.signAcademicRecord(record, publicKeys.headPrivateKey, 'head_key_id');
-		
 		const recordId = this.generateId();
 		
 		return {
@@ -56,7 +53,7 @@ export class AcademicService {
 				id: recordId,
 				studentId: userIds.studentId,
 				encryptedData,
-				digitalSignature: signature.signature,
+				digitalSignature: '',
 				keyId: keySharing.keyId,
 				createdAt: new Date(),
 				createdBy: advisorId
