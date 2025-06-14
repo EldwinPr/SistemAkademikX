@@ -215,7 +215,7 @@
 											<td class="whitespace-nowrap px-4 py-2">
 												<input 
 													type="text" 
-													name="course_{i}_code" 
+													name="courses[{i}][code]" 
 													bind:value={course.code}
 													on:blur={() => validateCourseCode(i)} 
 													class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -224,7 +224,7 @@
 											<td class="px-4 py-2">
 												<input 
 													type="text" 
-													name="course_{i}_name" 
+													name="courses[{i}][name]" 
 													bind:value={course.name}
 													on:blur={() => validateCourseName(i)} 
 													class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -233,7 +233,7 @@
 											<td class="whitespace-nowrap px-4 py-2">
 												<input 
 													type="number" 
-													name="course_{i}_credits" 
+													name="courses[{i}][credits]" 
 													value={course.credits}
 													on:input={(e) => handleCreditsChange(i, parseInt((e.target as HTMLInputElement).value) || 2)}
 													min="1" 
@@ -243,7 +243,7 @@
 											</td>
 											<td class="whitespace-nowrap px-4 py-2">
 												<select 
-													name="course_{i}_grade" 
+													name="courses[{i}][grade]" 
 													bind:value={course.grade} 
 													class="w-24 rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
 												>

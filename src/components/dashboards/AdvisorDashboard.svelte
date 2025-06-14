@@ -7,7 +7,7 @@
 	export let form: any;
 
 	$: user = data.userContext.user;
-	$: students = data.students || [];
+	$: students = data.adviseeStudents || [];
 	//$: allAdvisors = data.allAdvisors || [];
 	$: allRecords = data.allRecords || [];
 
