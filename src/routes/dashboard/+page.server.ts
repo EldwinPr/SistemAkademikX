@@ -81,7 +81,7 @@ export const actions: Actions = {
 		try {
 			const formData = await request.formData();
 			const studentId = formData.get('studentId') as string;
-			const aesKey = formData.get('aesKey') as string; // Key provided by the user. 
+			const aesKey = formData.get('aesKey') as string;
 
 			// Validate input
 			if (!studentId || !aesKey) {
@@ -104,14 +104,60 @@ export const actions: Actions = {
 				return fail(500, { error: 'Program head or their keys are not configured.' });
 			}
 
+			// Parse courses dynamically - no fixed number required
 			const courses: Course[] = [];
-			for (let i = 0; i < 10; i++) {
+			let courseIndex = 0;
+			
+			// Keep looking for courses until we don't find any more
+			while (true) {
+				const code = formData.get(`courses[${courseIndex}][code]`) as string;
+				const name = formData.get(`courses[${courseIndex}][name]`) as string;
+				const credits = formData.get(`courses[${courseIndex}][credits]`) as string;
+				const grade = formData.get(`courses[${courseIndex}][grade]`) as string;
+				
+				// If any required field is missing, stop parsing
+				if (!code || !name || !credits || !grade) {
+					break;
+				}
+				
+				// Add the course
 				courses.push({
-					code: formData.get(`courses[${i}][code]`) as string,
-					name: formData.get(`courses[${i}][name]`) as string,
-					credits: parseInt(formData.get(`courses[${i}][credits]`) as string, 10),
-					grade: formData.get(`courses[${i}][grade]`) as string
+					code: code.trim(),
+					name: name.trim(),
+					credits: parseInt(credits, 10),
+					grade: grade.trim()
 				});
+				
+				courseIndex++;
+			}
+
+			// Validate that we have at least one course
+			if (courses.length === 0) {
+				return fail(400, { error: 'At least one course is required.' });
+			}
+
+			// Validate course data
+			for (let i = 0; i < courses.length; i++) {
+				const course = courses[i];
+				
+				if (!course.code || !course.name) {
+					return fail(400, { error: `Course ${i + 1}: Code and name are required.` });
+				}
+				
+				if (isNaN(course.credits) || course.credits < 1 || course.credits > 6) {
+					return fail(400, { error: `Course ${i + 1}: Credits must be between 1 and 6.` });
+				}
+				
+				const validGrades = ['A', 'AB', 'B', 'BC', 'C', 'D', 'E'];
+				if (!validGrades.includes(course.grade)) {
+					return fail(400, { error: `Course ${i + 1}: Invalid grade. Must be one of: ${validGrades.join(', ')}.` });
+				}
+			}
+
+			// Check total credits (optional validation)
+			const totalCredits = courses.reduce((sum, course) => sum + course.credits, 0);
+			if (totalCredits > 24) {
+				return fail(400, { error: `Total credits (${totalCredits}) exceeds maximum allowed (24 SKS).` });
 			}
 
 			const recordData = { nim: student.nim!, name: student.fullName, courses };
@@ -145,7 +191,10 @@ export const actions: Actions = {
 				db.secretShare.createMany({ data: secretShares })
 			]);
 
-			return { success: true, message: `Academic record for ${student.fullName} created successfully.` };
+			return { 
+				success: true, 
+				message: `Academic record for ${student.fullName} created successfully with ${courses.length} courses.` 
+			};
 
 		} catch (error: any) {
 			console.error("Error creating record:", error);

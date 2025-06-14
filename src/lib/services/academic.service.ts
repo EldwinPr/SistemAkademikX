@@ -59,7 +59,6 @@ export class AcademicService {
 				digitalSignature: signature.signature,
 				keyId: keySharing.keyId,
 				createdAt: new Date(),
-				updatedAt: new Date(),
 				createdBy: advisorId
 			},
 			directKeys: directKeyData.map(key => ({
@@ -197,8 +196,19 @@ export class AcademicService {
 			throw new Error('Missing required fields');
 		}
 
-		if (data.courses.length !== 10) {
-			throw new Error('Must have exactly 10 courses');
+		// Remove the fixed 10 course requirement - now flexible
+		if (data.courses.length < 1) {
+			throw new Error('Must have at least 1 course');
+		}
+
+		if (data.courses.length > 12) {
+			throw new Error('Maximum 12 courses allowed');
+		}
+
+		// Validate total credits don't exceed 24 SKS
+		const totalCredits = data.courses.reduce((sum, course) => sum + course.credits, 0);
+		if (totalCredits > 24) {
+			throw new Error('Total credits cannot exceed 24 SKS');
 		}
 
 		// Validate grades

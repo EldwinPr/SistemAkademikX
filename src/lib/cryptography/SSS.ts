@@ -37,7 +37,7 @@ export interface SecretShare {
  */
 export class ShamirSecretSharing {
   // Use a much larger prime that can handle AES keys
-  private readonly prime = BigInt('340282366920938463463374607431768211507'); // 2^128 - 159
+  private readonly prime = BigInt('13407807929942597099574024998205846127479365820592393377723561443721764030073546976801874298166903427690031858186486050853753882811946569946433649006084171'); // 2^128 - 159
 
   /**
    * Generate polynomial coefficients
