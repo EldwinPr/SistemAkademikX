@@ -4,11 +4,13 @@
 	export let students: any[] = [];
 	export let showForm = false;
 	
-	// Form data - start with 1 empty course
+	// Form data - start with 1 empty course		
 	let courses = [{ code: '', name: '', credits: 2, grade: 'A' }];
 	let ipk = 0.0;
 	let generatedAESKey = '';
 	
+	let errors = [{ code: '', name: '' }];
+
 	const gradePoints: { [key: string]: number } = { 
 		A: 4.0, AB: 3.5, B: 3.0, BC: 2.5, C: 2.0, D: 1.0, E: 0.0 
 	};
@@ -90,6 +92,29 @@
 			courses[index].credits = newCredits;
 		}
 	}
+
+	function validateCourseCode(index: number) {
+		const code = courses[index].code;
+        if (!code) {
+            errors[index].code = "Kode MK tidak boleh kosong.";
+            return;
+        }
+        const courseCodeRegex = /^[A-Z]{2}\d{4}$/; 
+        if (!courseCodeRegex.test(code)) {
+            errors[index].code = "Format salah (contoh: IF2110).";
+        } else {
+            errors[index].code = ""; // Valid
+        }
+	}
+
+	function validateCourseName(index: number) {
+        const name = courses[index].name;
+        if (!name.trim()) {
+            errors[index].name = "Nama mata kuliah tidak boleh kosong.";
+        } else {
+            errors[index].name = ""; // Valid
+        }
+    }
 </script>
 
 {#if showForm}
@@ -191,7 +216,8 @@
 												<input 
 													type="text" 
 													name="course_{i}_code" 
-													bind:value={course.code} 
+													bind:value={course.code}
+													on:blur={() => validateCourseCode(i)} 
 													class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
 												/>
 											</td>
@@ -199,7 +225,8 @@
 												<input 
 													type="text" 
 													name="course_{i}_name" 
-													bind:value={course.name} 
+													bind:value={course.name}
+													on:blur={() => validateCourseName(i)} 
 													class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
 												/>
 											</td>

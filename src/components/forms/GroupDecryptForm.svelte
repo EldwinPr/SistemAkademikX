@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { VerificationStatus } from '$lib/types/academic.types';
+	import { onMount } from 'svelte';
 
 	export let showForm = false;
 	export let allRecords: any[] = [];
@@ -7,11 +8,48 @@
 	export let form: any = null;
 	export let currentUser: any = null; // Pass current user from parent
 
-	// Get current user's share automatically
+	let selectedRecordId = '';
 	let userShare = '';
+
+	$: if (selectedRecordId) {
+		fetchUserShare(selectedRecordId);
+	}
+
+	async function fetchUserShare(recordId: string) {
+		try {
+			const response = await fetch(`/api/shares/${recordId}`);
+			if (response.ok) {
+				const data = await response.json();
+				userShare = data.shareY || '';
+			}
+		} catch (error) {
+			console.error('Failed to fetch share:', error);
+		}
+	}
 
 	function closeForm() {
 		showForm = false;
+	}
+
+	let shares = ['', '', ''];
+	let shareErrors = ['', '', ''];
+
+	function validateShareFormat(shareValue: string): string {
+		if (!shareValue) {
+			return 'Share cannot be empty.';
+		}
+
+		if (!/^[a-fA-F0-9]+$/.test(shareValue)) {
+			return 'Invalid format. Share must be a hexadecimal string.';
+		}
+		if (shareValue.length < 32) { // Asumsi panjang minimal
+			return 'Share seems too short.';
+		}
+		return ''; 
+	}
+
+	function handleShareInput(index: number) {
+		shareErrors[index] = validateShareFormat(shares[index]);
 	}
 </script>
 

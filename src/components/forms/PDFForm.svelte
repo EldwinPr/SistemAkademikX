@@ -9,7 +9,7 @@
 	let shouldEncrypt = false;
 	let generatedRC4Key = '';
 	let mode = 'download'; // 'download' or 'decrypt'
-	
+
 	// Decrypt mode variables
 	let uploadedFile: File | null = null;
 	let decryptKey = '';
@@ -37,13 +37,27 @@
 		resetForm();
 		mode = newMode; // Keep mode after reset
 	}
-
+	let uploadError = '';
 	function handleFileUpload(event: Event) {
-		const target = event.target as HTMLInputElement;
-		if (target.files && target.files[0]) {
-			uploadedFile = target.files[0];
-		}
-	}
+        const target = event.target as HTMLInputElement;
+        
+        const file = target.files?.[0]; 
+        
+        if (!file) return;
+        
+        if (file.type !== 'application/pdf') {
+            uploadError = 'Please select a PDF file';
+            return;
+        }
+        
+        if (file.size > 50 * 1024 * 1024) { // 50MB limit
+            uploadError = 'File too large (max 50MB)';
+            return;
+        }
+        
+        uploadedFile = file;
+        uploadError = '';
+    }
 </script>
 
 {#if showForm}
