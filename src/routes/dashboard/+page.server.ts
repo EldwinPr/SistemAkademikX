@@ -11,6 +11,7 @@ import type { User } from '$lib/types/auth.types';
 import { RSA, RSAUtils } from '$lib/cryptography/RSA';
 import { SHA3 } from '$lib/cryptography/SHA3';
 import type { Role } from '@prisma/client';
+import type { DigitalSignature } from '$lib/types/crypto.types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(302, '/auth/login');
@@ -36,9 +37,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 				orderBy: { createdAt: 'desc' }
 			});
 		} else if (role === 'Dosen_Wali') {
-			dashboardData.adviseeStudents = await db.user.findMany({
-				where: { DosenId: userId, role: 'Mahasiswa' }
+			const studentsWithCounts = await db.user.findMany({
+				where: { DosenId: userId, role: 'Mahasiswa' },
+				include: {
+				_count: {
+					select: { records: true }
+				}
+			}
 			});
+
+			dashboardData.adviseeStudents = studentsWithCounts.map(student => ({
+				...student,
+				hasTranscript: student._count.records > 0
+			}));
 
 			dashboardData.allAdvisors = await db.user.findMany({ where: { role: 'Dosen_Wali' } });
 			
@@ -269,52 +280,77 @@ export const actions: Actions = {
 		}
 	},
 	
-	groupDecrypt: async ({ request, locals }) => {
-		if (locals.user?.permissions.canParticipateInGroupDecryption !== true) {
-			return fail(403, { error: 'Forbidden.' });
+	viewMyTranscript: async ({ locals }) => {
+		if (!locals.user) throw redirect(302, '/auth/login');
+		
+		const userId = locals.user.user.id;
+		const userRole = locals.user.user.role;
+		
+		if (userRole !== 'Mahasiswa') {
+			return fail(403, { error: 'Only students can view their own transcript.' });
 		}
-	
+		
 		try {
-			const formData = await request.formData();
-			const recordId = formData.get('recordId') as string;
-			const sharesData = JSON.parse(formData.get('shares') as string);
-	
-			if (!recordId || !sharesData || sharesData.length < 3) {
-				return fail(400, { error: 'Record ID and at least 3 shares are required.' });
+			// Get user's private key for decryption
+			const fullUser = await db.user.findUnique({ 
+				where: { id: userId },
+				select: { privateKey: true }
+			});
+			
+			if (!fullUser?.privateKey) {
+				return fail(500, { error: 'Your private key was not found. Please contact administrator.' });
 			}
-	
-			const dbShares = await db.secretShare.findMany({
+
+			// Find student's academic record
+			const record = await db.transkrip.findFirst({
+				where: { studentId: userId },
+				include: { student: { select: { programStudi: true } } },
+				orderBy: { createdAt: 'desc' }
+			});
+
+			if (!record) {
+				return fail(404, { error: 'No academic record found. Your advisor may not have input your data yet.' });
+			}
+
+			const directKey = await db.directKey.findUnique({
 				where: { 
-					recordId,
-					advisorId: { in: sharesData.map((s: any) => s.advisorId) }
+					recordId_userId: { 
+						recordId: record.id, 
+						userId: userId 
+					} 
 				}
 			});
-	
-			if (dbShares.length < 3) {
-				return fail(400, { error: 'Could not find enough matching shares in the database.' });
+
+			if (!directKey) {
+				return fail(403, { error: 'Access key not found for your record. Please contact administrator.' });
 			}
-	
-			const sharesForReconstruction = dbShares.map(dbShare => ({
-				shareX: dbShare.shareX,
-				shareY: dbShare.shareY, 
-			}));
-			const prime = dbShares[0].prime;
-	
-			const aesKey = CryptoService.reconstructKeyFromShares(sharesForReconstruction, prime);
-	
-			const record = await db.transkrip.findUnique({
-				where: { id: recordId },
-				include: { student: { select: { programStudi: true } } }
-			});
-			if (!record) return fail(404, { error: 'Record not found.' });
-	
-			const decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
-	
+
+			// Decrypt AES key using private key
+			const aesKey = CryptoService.decryptDirectAccessKey(
+				directKey.encryptedAESKey, 
+				fullUser.privateKey
+			);
+			
+			// Decrypt academic record
+			const decryptedRecord = CryptoService.decryptAcademicRecord(
+				record.encryptedData, 
+				aesKey
+			);
+
+			// Get program head's public key for signature verification
 			const head = await db.user.findFirst({
-				where: { role: 'Kepala_Program_Studi', programStudi: record.student.programStudi! }
+				where: { 
+					role: 'Kepala_Program_Studi', 
+					programStudi: record.student.programStudi! 
+				},
+				select: { publicKey: true, fullName: true }
 			});
-			if (!head?.publicKey) return fail(500, { error: 'Could not find public key.' });
-	
+
+			if (!head?.publicKey) {
+				return fail(500, { error: 'Program head public key not found for signature verification.' });
+			}
+
+			// Verify digital signature
 			const signature = {
 				signature: record.digitalSignature,
 				algorithm: 'RSA-SHA3' as const,
@@ -322,41 +358,252 @@ export const actions: Actions = {
 				timestamp: record.createdAt,
 				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
 			};
-			const verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
-	
-			return { success: true, record: decryptedRecord, verification, groupDecrypted: true };
-	
+
+			const verification = SignatureService.verifyAcademicRecord(
+				decryptedRecord, 
+				signature, 
+				head.publicKey
+			);
+
+			// Prepare transcript data with verification status
+			const transcript = {
+				...decryptedRecord,
+				verificationStatus: verification.isValid ? 'VERIFIED' : 'UNVERIFIED',
+				verificationMessage: verification.message,
+				signedBy: head.fullName,
+				recordCreatedAt: record.createdAt
+			};
+
+			return { 
+				myTranscriptSuccess: true, 
+				myTranscript: transcript,
+				message: 'Your transcript has been loaded successfully!' 
+			};
+
 		} catch (error: any) {
-			console.error("Group decrypt error:", error);
-			return fail(500, { error: error.message || 'Group decryption failed.' });
+			console.error("Error loading student transcript:", error);
+			return fail(500, { 
+				error: error.message || 'An unexpected error occurred while loading your transcript.' 
+			});
 		}
 	},
-	
-	generatePdf: async ({ request }) => {
+
+	groupDecrypt: async ({ request, locals }) => {
+		if (locals.user?.permissions.canParticipateInGroupDecryption !== true) {
+			return fail(403, { error: 'Forbidden: Only advisors can participate in group decryption.' });
+		}
+
 		try {
 			const formData = await request.formData();
-			const recordData = JSON.parse(formData.get('recordData') as string) as AcademicRecord;
-			const signatureData = JSON.parse(formData.get('signatureData') as string);
+			const recordId = formData.get('recordId') as string;
+			
+			// Get individual share data from form
+			const advisorId1 = formData.get('advisorId1') as string;
+			const shareY1 = formData.get('shareY1') as string;
+			const advisorId2 = formData.get('advisorId2') as string;
+			const shareY2 = formData.get('shareY2') as string;
+			const advisorId3 = formData.get('advisorId3') as string;
+			const shareY3 = formData.get('shareY3') as string;
+
+			// Validate required fields
+			if (!recordId || !advisorId1 || !shareY1 || !advisorId2 || !shareY2 || !advisorId3 || !shareY3) {
+				return fail(400, { error: 'Record ID and all 3 advisor shares are required.' });
+			}
+
+			// Get database shares to validate 
+			const dbShares = await db.secretShare.findMany({
+				where: { 
+					recordId,
+					advisorId: { in: [advisorId1, advisorId2, advisorId3] }
+				}
+			});
+
+			if (dbShares.length < 3) {
+				return fail(400, { error: `Only found ${dbShares.length} shares in database. Need 3 shares for reconstruction.` });
+			}
+
+			const shareMap = new Map(dbShares.map(s => [s.advisorId, s]));
+			
+			const submittedShares = [
+				{ advisorId: advisorId1, shareY: shareY1 },
+				{ advisorId: advisorId2, shareY: shareY2 },
+				{ advisorId: advisorId3, shareY: shareY3 }
+			];
+
+			const validatedShares: { shareX: number; shareY: string }[] = [];
+
+			for (const submitted of submittedShares) {
+				const dbShare = shareMap.get(submitted.advisorId);
+				
+				if (!dbShare) {
+					return fail(400, { error: `No share found for advisor ${submitted.advisorId} in this record.` });
+				}
+				
+				if (dbShare.shareY !== submitted.shareY) {
+					return fail(400, { error: `Invalid share provided for advisor ${submitted.advisorId}. Share does not match database.` });
+				}
+				
+				validatedShares.push({
+					shareX: dbShare.shareX,
+					shareY: dbShare.shareY
+				});
+			}
+
+			const prime = dbShares[0].prime; // All shares have same prime
+
+			// Reconstruct AES key using validated shares
+			const aesKey = CryptoService.reconstructKeyFromShares(validatedShares, prime);
+
+			// Get and decrypt the academic record
+			const record = await db.transkrip.findUnique({
+				where: { id: recordId },
+				include: { student: { select: { programStudi: true, fullName: true, nim: true } } }
+			});
+
+			if (!record) {
+				return fail(404, { error: 'Academic record not found.' });
+			}
+
+			const decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
+
+			// Verify digital signature
+			const head = await db.user.findFirst({
+				where: { role: 'Kepala_Program_Studi', programStudi: record.student.programStudi! }
+			});
+
+			if (!head?.publicKey) {
+				return fail(500, { error: 'Program head public key not found for signature verification.' });
+			}
+
+			const signature = {
+				signature: record.digitalSignature,
+				algorithm: 'RSA-SHA3' as const,
+				keyId: record.keyId,
+				timestamp: record.createdAt,
+				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
+			};
+
+			const verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
+
+			// Return data in format expected by component
+			return { 
+				groupDecryptSuccess: true, 
+				decryptedData: decryptedRecord,
+				verificationStatus: verification.isValid ? 'VERIFIED' : 'UNVERIFIED',
+				verificationMessage: verification.message,
+				studentInfo: {
+					name: record.student.fullName,
+					nim: record.student.nim
+				},
+				message: `Group decryption successful for ${record.student.fullName} (${record.student.nim}).`
+			};
+
+		} catch (error: any) {
+			console.error("Group decrypt error:", error);
+			return fail(500, { error: error.message || 'Group decryption failed due to server error.' });
+		}
+	},
+	generatePdf: async ({ request, locals }) => {
+		if (!locals.user) throw redirect(302, '/auth/login');
+
+		try {
+			const formData = await request.formData();
+			const recordId = formData.get('recordId') as string;
 			const shouldEncrypt = formData.get('encrypt') === 'true';
 			const rc4Key = formData.get('rc4Key') as string | undefined;
+
+			if (!recordId) {
+				return fail(400, { error: 'Record ID is required.' });
+			}
 
 			if (shouldEncrypt && !rc4Key) {
 				return fail(400, { error: 'RC4 key is required for encryption.' });
 			}
 
-	
-			let { fileData, fileName } = PDFService.generateTranscript(recordData, signatureData);
+			const userId = locals.user.user.id;
+			const fullUser = await db.user.findUnique({ 
+				where: { id: userId },
+				select: { privateKey: true }
+			});
 
-			if (shouldEncrypt && rc4Key) {
-				const encryptedResult = PDFService.encryptPDF(fileData!, fileName, rc4Key);
-				fileData = encryptedResult.encryptedData;
-				fileName = encryptedResult.fileName;
+			if (!fullUser?.privateKey) {
+				return fail(500, { error: 'Private key not found.' });
 			}
+
+			// Get direct access key
+			const directKey = await db.directKey.findUnique({
+				where: { recordId_userId: { recordId, userId } }
+			});
+
+			if (!directKey) {
+				return fail(403, { error: 'Access denied to this record.' });
+			}
+
+			// Decrypt record
+			const aesKey = CryptoService.decryptDirectAccessKey(directKey.encryptedAESKey, fullUser.privateKey);
 			
-			return new Response(fileData, {
+			const record = await db.transkrip.findUnique({
+				where: { id: recordId },
+				include: { student: { select: { programStudi: true } } }
+			});
+
+			if (!record) return fail(404, { error: 'Record not found.' });
+
+			const decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
+
+			// Get signature info
+			const head = await db.user.findFirst({
+				where: { role: 'Kepala_Program_Studi', programStudi: record.student.programStudi! }
+			});
+
+			if (!head?.publicKey) return fail(500, { error: 'Program head public key not found.' });
+
+			// Create signature data for PDF
+			const signatureData = {
+				algorithm: 'RSA-SHA3',
+				keyId: record.keyId,
+				timestamp: record.createdAt,
+				signature: record.digitalSignature,
+				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord)),
+				signedBy: head.fullName,
+				status: 'SIGNED'
+			};
+
+			// Generate PDF transcript
+			const transcript = PDFService.generateTranscript(
+				decryptedRecord, 
+				signatureData,
+				{
+					includeSignature: true,
+					includeWatermark: true,
+					headerText: 'INSTITUT TEKNOLOGI BANDUNG'
+				},
+				locals.user.user.fullName
+			);
+
+			if (!transcript.fileData) {
+				return fail(500, { error: 'Failed to generate PDF.' });
+			}
+
+			let finalFileData = transcript.fileData;
+			let finalFileName = transcript.fileName;
+
+			// Encrypt if requested
+			if (shouldEncrypt && rc4Key) {
+				const encryptedResult = PDFService.encryptPDF(finalFileData, finalFileName, rc4Key);
+				finalFileData = encryptedResult.encryptedData;
+				finalFileName = encryptedResult.fileName;
+				
+				// Update transcript object to reflect encryption
+				transcript.isEncrypted = true;
+				transcript.fileName = finalFileName;
+				transcript.fileData = finalFileData;
+			}
+
+			return new Response(finalFileData, {
 				headers: {
 					'Content-Type': 'application/pdf',
-					'Content-Disposition': `attachment; filename="${fileName}"`,
+					'Content-Disposition': `attachment; filename="${finalFileName}"`,
 				},
 			});
 
@@ -365,25 +612,23 @@ export const actions: Actions = {
 			return fail(500, { error: error.message || 'Failed to generate PDF.' });
 		}
 	},
-
 	decryptPdf: async ({ request }) => {
 		try {
 			const formData = await request.formData();
-			const encryptedFile = formData.get('encryptedPdf') as File;
-			const rc4Key = formData.get('rc4Key') as string;
+			const encryptedFile = formData.get('pdfFile') as File;
+			const rc4Key = formData.get('decryptKey') as string;
 
 			if (!encryptedFile || !rc4Key) {
 				return fail(400, { error: 'Encrypted file and RC4 key are required.' });
 			}
-			
-			const encryptedBytes = new Uint8Array(await encryptedFile.arrayBuffer());
 
+			const encryptedBytes = new Uint8Array(await encryptedFile.arrayBuffer());
 			const result = PDFService.decryptPDF(encryptedBytes, rc4Key, encryptedFile.name);
 
 			if (!result.success || !result.decryptedData) {
-				return fail(500, { error: result.message });
+				return fail(400, { error: result.message || 'Decryption failed.' });
 			}
-			
+
 			return new Response(result.decryptedData, {
 				headers: {
 					'Content-Type': 'application/pdf',
@@ -395,8 +640,7 @@ export const actions: Actions = {
 			console.error("Error decrypting PDF:", error);
 			return fail(500, { error: error.message || 'Failed to decrypt PDF.' });
 		}
-	},
-	
+	},	
 	signRecord: async ({ request, locals }) => {
 		if (locals.user?.permissions.canSignRecords !== true) {
 			return fail(403, { error: 'Forbidden: You do not have permission to sign records.' });

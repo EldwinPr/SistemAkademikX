@@ -4,73 +4,154 @@
 
 	export let showForm = false;
 	export let allRecords: any[] = [];
-	//export let allAdvisors: any[] = [];
 	export let form: any = null;
-	export let currentUser: any = null; // Pass current user from parent
+	export let currentUser: any = null;
 
 	let availableAdvisors: any[] = [];
-
 	let selectedRecordId = '';
 	let userShare = '';
+	
+	// Auto-populated shares for all 3 advisors
+	let advisor1Share = '';
+	let advisor2Share = '';
+	let advisor3Share = '';
+	let advisor1Id = '';
+	let advisor2Id = '';
+	let advisor3Id = '';
+	
+	// Available shares for the selected record
+	let recordShares: any[] = [];
+	let isLoadingShares = false;
 
-	$: if (selectedRecordId) {
-		fetchUserShare(selectedRecordId);
+	// Set current user as advisor 1 by default
+	$: if (currentUser) {
+		advisor1Id = currentUser.id;
+		advisor1Share = userShare;
 	}
+
+	// When record is selected, fetch all shares
+	$: if (selectedRecordId) {
+		fetchAllSharesForRecord(selectedRecordId);
+	}
+
 	onMount(() => {
-        fetchAdvisors();
-    });
+		fetchAdvisors();
+	});
 
-    async function fetchAdvisors() {
-        try {
-            const response = await fetch('/api/users/advisors');
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    availableAdvisors = data.advisors;
-                }
-            } else {
-                console.error('Failed to fetch advisors list');
-            }
-        } catch (error) {
-            console.error('Error fetching advisors:', error);
-        }
-    }
-
-	async function fetchUserShare(recordId: string) {
+	async function fetchAdvisors() {
 		try {
-			const response = await fetch(`/api/shares/${recordId}`);
+			const response = await fetch('/api/users/advisors');
 			if (response.ok) {
 				const data = await response.json();
-				userShare = data.shareY || '';
+				if (data.success) {
+					availableAdvisors = data.advisors;
+				}
 			}
 		} catch (error) {
-			console.error('Failed to fetch share:', error);
+			console.error('Error fetching advisors:', error);
+		}
+	}
+
+	// Fetch all shares for a record
+	async function fetchAllSharesForRecord(recordId: string) {
+		console.log('🔍 Fetching all shares for record:', recordId);
+		isLoadingShares = true;
+		
+		try {
+			// Get all shares for this record
+			const response = await fetch(`/api/shares/all/${recordId}`);
+			
+			if (response.ok) {
+				const data = await response.json();
+				if (data.success && data.shares) {
+					recordShares = data.shares;
+					console.log('📦 All shares fetched:', recordShares);
+					
+					// Auto-populate shares
+					autoPopulateShares();
+				} else {
+					console.log('❌ No shares found for record');
+					clearAllShares();
+				}
+			} else {
+				console.error('❌ Error fetching shares:', response.status);
+				clearAllShares();
+			}
+		} catch (error) {
+			console.error('❌ Network error fetching shares:', error);
+			clearAllShares();
+		} finally {
+			isLoadingShares = false;
+		}
+	}
+
+	// Auto-populate the three advisor shares
+	function autoPopulateShares() {
+		// Find current user's share
+		const currentUserShare = recordShares.find(share => share.advisorId === currentUser?.id);
+		if (currentUserShare) {
+			advisor1Id = currentUser.id;
+			advisor1Share = currentUserShare.shareY;
+			userShare = currentUserShare.shareY; // Keep this for backward compatibility
+		}
+
+		// Auto-select other advisors (exclude current user)
+		const otherShares = recordShares.filter(share => share.advisorId !== currentUser?.id);
+		
+		if (otherShares.length >= 1) {
+			advisor2Id = otherShares[0].advisorId;
+			advisor2Share = otherShares[0].shareY;
+		}
+		
+		if (otherShares.length >= 2) {
+			advisor3Id = otherShares[1].advisorId;
+			advisor3Share = otherShares[1].shareY;
+		}
+
+		console.log('✅ Auto-populated shares:', {
+			advisor1: { id: advisor1Id, share: advisor1Share },
+			advisor2: { id: advisor2Id, share: advisor2Share },
+			advisor3: { id: advisor3Id, share: advisor3Share }
+		});
+	}
+
+	function clearAllShares() {
+		advisor1Share = '';
+		advisor2Share = '';
+		advisor3Share = '';
+		advisor2Id = '';
+		advisor3Id = '';
+		recordShares = [];
+	}
+
+	// When advisor selection changes, update the share
+	function onAdvisorChange(advisorNumber: number, advisorId: string) {
+		const share = recordShares.find(s => s.advisorId === advisorId);
+		
+		if (advisorNumber === 2) {
+			advisor2Share = share ? share.shareY : '';
+		} else if (advisorNumber === 3) {
+			advisor3Share = share ? share.shareY : '';
 		}
 	}
 
 	function closeForm() {
 		showForm = false;
+		clearAllShares();
+		selectedRecordId = '';
 	}
 
-	let shares = ['', '', ''];
-	let shareErrors = ['', '', ''];
-
-	function validateShareFormat(shareValue: string): string {
-		if (!shareValue) {
-			return 'Share cannot be empty.';
+	// Legacy function - keep for current user share
+	async function fetchUserShare(recordId: string) {
+		try {
+			const response = await fetch(`/api/shares/${recordId}`);
+			if (response.ok) {
+				const data = await response.json();
+				userShare = data.share?.shareY || '';
+			}
+		} catch (error) {
+			console.error('Failed to fetch user share:', error);
 		}
-
-		if (!/^[a-fA-F0-9]+$/.test(shareValue)) {
-			return 'Invalid format. Share must be a hexadecimal string.';
-		}
-		if (shareValue.length < 32) { // Asumsi panjang minimal
-			return 'Share seems too short.';
-		}
-		return ''; 
-	}
-
-	function handleShareInput(index: number) {
-		shareErrors[index] = validateShareFormat(shares[index]);
 	}
 </script>
 
@@ -115,88 +196,97 @@
 						<!-- Advisor Shares Input -->
 						<div>
 							<h3 class="text-lg font-medium text-gray-800">Masukkan 3 Bagian Kunci</h3>
-							<div class="mt-4 space-y-4">
-								
-								<!-- Share 1: Current User -->
-								<div class="bg-blue-50 border border-blue-200 rounded-md p-4">
-									<label class="block text-sm font-medium text-blue-800 mb-2">
-										Bagian Kunci Anda ({currentUser?.fullName || 'Current User'})
-									</label>
-									<input 
-										type="text" 
-										name="shareY1" 
-										bind:value={userShare}
-										required 
-										placeholder="Bagian kunci Anda akan ditampilkan di sini" 
-										class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs bg-white"
-									/>
-									<!-- Hidden input for current user -->
-									<input type="hidden" name="advisorId1" value={currentUser?.id} />
+							
+							{#if isLoadingShares}
+								<div class="mt-4 text-center text-gray-600">
+									<div class="animate-spin inline-block w-6 h-6 border-[3px] border-current border-t-transparent text-blue-600 rounded-full"></div>
+									Loading shares...
 								</div>
-
-								<!-- Share 2 -->
-								<div>
-									<label class="block text-sm font-medium text-gray-700 mb-2">
-										Bagian Kunci dari Dosen ke-2
-									</label>
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-										<select 
-											name="advisorId2" 
-											required 
-											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-										>
-											<option disabled selected value="">-- Pilih Dosen Wali ke-2 --</option>
-											{#each availableAdvisors as advisor}
-												{#if advisor.id !== currentUser?.id}
-													<option value={advisor.id}>{advisor.fullName}</option>
-												{/if}
-											{/each}
-										</select>
+							{:else}
+								<div class="mt-4 space-y-4">
+									
+									<!-- Share 1: Current User -->
+									<div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+										<label class="block text-sm font-medium text-blue-800 mb-2">
+											Bagian Kunci Anda ({currentUser?.fullName || 'Current User'})
+										</label>
 										<input 
 											type="text" 
-											name="shareY2" 
+											name="shareY1" 
+											bind:value={advisor1Share}
 											required 
-											placeholder="Bagian kunci dari Dosen ke-2" 
-											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs"
+											placeholder="Bagian kunci Anda akan ditampilkan di sini" 
+											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs bg-white"
+											readonly
 										/>
+										<input type="hidden" name="advisorId1" bind:value={advisor1Id} />
+									</div>
+
+									<!-- Share 2 -->
+									<div class="bg-green-50 border border-green-200 rounded-md p-4">
+										<label class="block text-sm font-medium text-green-800 mb-2">
+											Bagian Kunci dari Dosen ke-2
+										</label>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+											<select 
+												name="advisorId2" 
+												bind:value={advisor2Id}
+												on:change={() => onAdvisorChange(2, advisor2Id)}
+												required 
+												class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+											>
+												<option disabled value="">-- Auto-selected --</option>
+												{#each availableAdvisors as advisor}
+													{#if advisor.id !== currentUser?.id}
+														<option value={advisor.id}>{advisor.fullName}</option>
+													{/if}
+												{/each}
+											</select>
+											<input 
+												type="text" 
+												name="shareY2" 
+												bind:value={advisor2Share}
+												required 
+												placeholder="Auto-filled when advisor selected" 
+												class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs"
+												readonly
+											/>
+										</div>
+									</div>
+
+									<!-- Share 3 -->
+									<div class="bg-purple-50 border border-purple-200 rounded-md p-4">
+										<label class="block text-sm font-medium text-purple-800 mb-2">
+											Bagian Kunci dari Dosen ke-3
+										</label>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+											<select 
+												name="advisorId3" 
+												bind:value={advisor3Id}
+												on:change={() => onAdvisorChange(3, advisor3Id)}
+												required 
+												class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+											>
+												<option disabled value="">-- Auto-selected --</option>
+												{#each availableAdvisors as advisor}
+													{#if advisor.id !== currentUser?.id}
+														<option value={advisor.id}>{advisor.fullName}</option>
+													{/if}
+												{/each}
+											</select>
+											<input 
+												type="text" 
+												name="shareY3" 
+												bind:value={advisor3Share}
+												required 
+												placeholder="Auto-filled when advisor selected" 
+												class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs"
+												readonly
+											/>
+										</div>
 									</div>
 								</div>
-
-								<!-- Share 3 -->
-								<div>
-									<label class="block text-sm font-medium text-gray-700 mb-2">
-										Bagian Kunci dari Dosen ke-3
-									</label>
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-										<select 
-											name="advisorId3" 
-											required 
-											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-										>
-											<option disabled selected value="">-- Pilih Dosen Wali ke-3 --</option>
-											{#each availableAdvisors as advisor}
-												{#if advisor.id !== currentUser?.id}
-													<option value={advisor.id}>{advisor.fullName}</option>
-												{/if}
-											{/each}
-										</select>
-										<input 
-											type="text" 
-											name="shareY3" 
-											required 
-											placeholder="Bagian kunci dari Dosen ke-3" 
-											class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-xs"
-										/>
-									</div>
-								</div>
-							</div>
-
-							<!-- Simple Info Box -->
-							<div class="mt-4 bg-gray-50 border border-gray-200 rounded-md p-3">
-								<p class="text-sm text-gray-600">
-									<strong>Catatan:</strong> Koordinasi dengan 2 dosen wali lainnya untuk mendapatkan bagian kunci mereka.
-								</p>
-							</div>
+							{/if}
 						</div>
 
 						<!-- Group Decrypt Results -->
