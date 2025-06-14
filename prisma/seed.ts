@@ -1,37 +1,42 @@
 import { PrismaClient } from '@prisma/client';
 import { RSA, RSAUtils } from '../src/lib/cryptography/RSA';
 import { SHA3 } from '../src/lib/cryptography/SHA3';
-import { BBSUtils } from '../src/lib/cryptography/BBS';
 
 const prisma = new PrismaClient();
 
-// Simple password hashing using your crypto library
+// Simple password hashing using SHA3
 function hashPassword(password: string): string {
-  // Use SHA3 to hash the password
   const hash = SHA3.sha256(password);
-  // Convert to hex string
   return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function main() {
-  console.log('Starting database seed...');
+  console.log('🚀 Starting enhanced database seed...');
 
-  // Generate RSA key pairs for both heads
+  // Clear existing data (optional - remove in production)
+  console.log('🧹 Cleaning existing data...');
+  await prisma.session.deleteMany();
+  await prisma.directKey.deleteMany();
+  await prisma.secretShare.deleteMany();
+  await prisma.transkrip.deleteMany();
+  await prisma.user.deleteMany();
+
+  // Generate RSA key pairs for both program heads
+  console.log('🔐 Generating RSA key pairs...');
   const informaticsKeyPair = RSA.generateKeyPair(2048);
   const sisKeyPair = RSA.generateKeyPair(2048);
 
-  // Hash default passwords using your crypto library
   const defaultPasswordHash = hashPassword('admin123');
 
-  // Create Head for Informatics
-  const kaprodiIF = await prisma.user.upsert({
-    where: { username: 'KaprodiIF' },
-    update: {},
-    create: {
-      username: 'KaprodiIF',
+  // ===== CREATE KEPALA PROGRAM STUDI =====
+  console.log('👨‍💼 Creating Program Heads...');
+  
+  const kaprodiIF = await prisma.user.create({
+    data: {
+      username: 'kaprodiIF',
       password: defaultPasswordHash,
       role: 'Kepala_Program_Studi',
-      fullName: 'Kepala Program Studi Teknik Informatika',
+      fullName: 'Dr. Kepala Program Studi Teknik Informatika',
       programStudi: 'Teknik_Informatika',
       publicKey: RSAUtils.publicKeyToHex(informaticsKeyPair.publicKey),
       privateKey: RSAUtils.privateKeyToHex(informaticsKeyPair.privateKey),
@@ -39,15 +44,12 @@ async function main() {
     }
   });
 
-  // Create Head for Information Systems
-  const kaprodiSTI = await prisma.user.upsert({
-    where: { username: 'KaprodiSTI' },
-    update: {},
-    create: {
-      username: 'KaprodiSTI',
+  const kaprodiSTI = await prisma.user.create({
+    data: {
+      username: 'kaprodiSTI',
       password: defaultPasswordHash,
       role: 'Kepala_Program_Studi',
-      fullName: 'Kepala Program Studi Sistem dan Teknologi Informasi',
+      fullName: 'Dr. Kepala Program Studi Sistem dan Teknologi Informasi',
       programStudi: 'Sistem_Teknologi_Informasi',
       publicKey: RSAUtils.publicKeyToHex(sisKeyPair.publicKey),
       privateKey: RSAUtils.privateKeyToHex(sisKeyPair.privateKey),
@@ -55,27 +57,33 @@ async function main() {
     }
   });
 
-  console.log('Created default heads:');
-  console.log(`${kaprodiIF.fullName} (${kaprodiIF.username})`);
-  console.log(`${kaprodiSTI.fullName} (${kaprodiSTI.username})`);
-  console.log('Default password: admin123');
-  console.log('Please change default passwords in production!');
+  console.log(`✅ Created: ${kaprodiIF.fullName}`);
+  console.log(`✅ Created: ${kaprodiSTI.fullName}`);
 
-  // Create 5 advisors
-  console.log('Creating advisors...');
+  // ===== CREATE DOSEN WALI (ADVISORS) =====
+  console.log('\n👩‍🏫 Creating Advisors...');
   const advisors: any[] = [];
 
-  for (let i = 1; i <= 5; i++) {
+  // Create exactly 5 advisors as requested
+  const advisorData = [
+    { username: 'doswal1', fullName: 'Dr. Dosen Wali Pertama' },
+    { username: 'doswal2', fullName: 'Dr. Dosen Wali Kedua' },
+    { username: 'doswal3', fullName: 'Dr. Dosen Wali Ketiga' },
+    { username: 'doswal4', fullName: 'Dr. Dosen Wali Keempat' },
+    { username: 'doswal5', fullName: 'Dr. Dosen Wali Kelima' }
+  ];
+
+  for (const advisorInfo of advisorData) {
     const advisorKeyPair = RSA.generateKeyPair(2048);
     
-    const advisor = await prisma.user.upsert({
-      where: { username: `advisor${i}` },
-      update: {},
-      create: {
-        username: `advisor${i}`,
+    const advisor = await prisma.user.create({
+      data: {
+        username: advisorInfo.username,
         password: defaultPasswordHash,
         role: 'Dosen_Wali',
-        fullName: `Dr. Dosen Wali ${i}`,
+        fullName: advisorInfo.fullName,
+        // Note: Dosen Wali don't have programStudi - they can advise from any program
+        programStudi: null,
         publicKey: RSAUtils.publicKeyToHex(advisorKeyPair.publicKey),
         privateKey: RSAUtils.privateKeyToHex(advisorKeyPair.privateKey),
         createdAt: new Date()
@@ -83,65 +91,76 @@ async function main() {
     });
 
     advisors.push(advisor);
-    console.log(`Created advisor: ${advisor.fullName} (${advisor.username})`);
+    console.log(`✅ Created advisor: ${advisor.fullName} (${advisor.username})`);
   }
 
-  // Optional: Create sample students for testing
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Creating sample students for development...');
+  // ===== CREATE STUDENTS =====
+  console.log('\n👨‍🎓 Creating Students...');
+  const students: any[] = [];
 
-    // Sample student key pairs
-    const student1KeyPair = RSA.generateKeyPair(2048);
-    const student2KeyPair = RSA.generateKeyPair(2048);
+  // Create STI student with 18222xxx NIM format
+  const stiStudent = { username: 'muridSTI1', name: 'Mahasiswa STI Pertama', nim: '18222001' };
+  
+  const stiStudentKeyPair = RSA.generateKeyPair(2048);
+  const stiStudent_created = await prisma.user.create({
+    data: {
+      username: stiStudent.username,
+      password: defaultPasswordHash,
+      role: 'Mahasiswa',
+      fullName: stiStudent.name,
+      nim: stiStudent.nim,
+      DosenId: advisors[0].id, // Assign to doswal1
+      programStudi: 'Sistem_Teknologi_Informasi',
+      publicKey: RSAUtils.publicKeyToHex(stiStudentKeyPair.publicKey),
+      privateKey: RSAUtils.privateKeyToHex(stiStudentKeyPair.privateKey),
+      createdAt: new Date()
+    }
+  });
 
-    // Create sample students
-    const student1 = await prisma.user.upsert({
-      where: { username: 'student1' },
-      update: {},
-      create: {
-        username: 'student1',
-        password: defaultPasswordHash,
-        role: 'Mahasiswa',
-        fullName: 'Mahasiswa Informatika',
-        nim: '13521001',
-        DosenId: advisors[0].id,
-        programStudi: 'Teknik_Informatika',
-        publicKey: RSAUtils.publicKeyToHex(student1KeyPair.publicKey),
-        privateKey: RSAUtils.privateKeyToHex(student1KeyPair.privateKey),
-        createdAt: new Date()
-      }
-    });
+  students.push(stiStudent_created);
+  console.log(`✅ Created STI student: ${stiStudent_created.fullName} (${stiStudent_created.nim}) - Advisor: ${advisors[0].fullName}`);
 
-    const student2 = await prisma.user.upsert({
-      where: { username: 'student2' },
-      update: {},
-      create: {
-        username: 'student2',
-        password: defaultPasswordHash,
-        role: 'Mahasiswa',
-        fullName: 'Mahasiswa STI',
-        nim: '18221001',
-        DosenId: advisors[1].id,
-        programStudi: 'Sistem_Teknologi_Informasi',
-        publicKey: RSAUtils.publicKeyToHex(student2KeyPair.publicKey),
-        privateKey: RSAUtils.privateKeyToHex(student2KeyPair.privateKey),
-        createdAt: new Date()
-      }
-    });
+  // Create IF student with 13522xxx NIM format
+  const ifStudent = { username: 'muridIF1', name: 'Mahasiswa IF Pertama', nim: '13522001' };
+  
+  const ifStudentKeyPair = RSA.generateKeyPair(2048);
+  const ifStudent_created = await prisma.user.create({
+    data: {
+      username: ifStudent.username,
+      password: defaultPasswordHash,
+      role: 'Mahasiswa',
+      fullName: ifStudent.name,
+      nim: ifStudent.nim,
+      DosenId: advisors[1].id, // Assign to doswal2
+      programStudi: 'Teknik_Informatika',
+      publicKey: RSAUtils.publicKeyToHex(ifStudentKeyPair.publicKey),
+      privateKey: RSAUtils.privateKeyToHex(ifStudentKeyPair.privateKey),
+      createdAt: new Date()
+    }
+  });
 
-    console.log('Created sample students:');
-    console.log(`${student1.fullName} (${student1.username}) - ${student1.programStudi}`);
-    console.log(`${student2.fullName} (${student2.username}) - ${student2.programStudi}`);
-  }
+  students.push(ifStudent_created);
+  console.log(`✅ Created IF student: ${ifStudent_created.fullName} (${ifStudent_created.nim}) - Advisor: ${advisors[1].fullName}`);
 
-  console.log('Database seed completed!');
+  // ===== SUMMARY =====
+  console.log('\n📊 Database Seed Summary:');
+  console.log('========================');
+  console.log(`👨‍💼 Program Heads: 2 (kaprodiIF, kaprodiSTI)`);
+  console.log(`👩‍🏫 Advisors: 5 (doswal1, doswal2, doswal3, doswal4, doswal5)`);
+  console.log(`👨‍🎓 Students: 2 total`);
+  console.log(`   - STI Student: 1 (muridSTI1 - 18222001)`);
+  console.log(`   - IF Student: 1 (muridIF1 - 13522001)`);
+  console.log(`🔐 All users have 2048-bit RSA key pairs`);
+  console.log(`🔑 Default password for all: admin123`);
+  console.log('\n✅ Database seed completed successfully!');
 }
 
 main()
   .catch((e) => {
-    console.error('Seed failed:', e);
+    console.error('❌ Seed failed:', e);
     process.exit(1);
   })
   .finally(async () => {
     await prisma.$disconnect();
+    console.log('🔌 Database connection closed.');
   });

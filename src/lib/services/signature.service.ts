@@ -29,10 +29,11 @@ export class SignatureService {
 		record: AcademicRecord,
 		privateKeyHex: string,
 		keyId: string
-	): DigitalSignature {
+		): DigitalSignature {
+
 		const dataHash = SHA3Utils.hashAcademicRecord(record);
 		const privateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
-		const signature = RSAUtils.signBytes(dataHash, privateKey);
+		const signature = RSAUtils.signHash(dataHash, privateKey);
 		
 		return {
 			signature: signature.toString(16),
@@ -50,36 +51,37 @@ export class SignatureService {
 		record: AcademicRecord,
 		digitalSignature: DigitalSignature,
 		publicKeyHex: string
-	): SignatureVerification {
+		): SignatureVerification {
 		try {
+			// Step 1: Hash the current record data
 			const currentHash = SHA3Utils.hashAcademicRecord(record);
 			const currentHashHex = SHA3Utils.toHex(currentHash);
 			
-			// Check if record was modified
+			// Step 2: Check if record was modified by comparing hashes
 			if (currentHashHex !== digitalSignature.dataHash) {
-				return {
-					isValid: false,
-					message: 'Record has been modified',
-					verifiedAt: new Date()
-				};
+			return {
+				isValid: false,
+				message: 'Record has been modified',
+				verifiedAt: new Date()
+			};
 			}
 			
-			// Verify signature
+			// Step 3: Verify the signature against the hash
 			const publicKey = RSAUtils.publicKeyFromHex(publicKeyHex);
 			const signature = BigInt('0x' + digitalSignature.signature);
-			const isValid = RSAUtils.verifyBytes(currentHash, signature, publicKey);
+			const isValid = RSAUtils.verifyHashSignature(currentHash, signature, publicKey); // Use new method
 			
 			return {
-				isValid,
-				message: isValid ? 'Signature verified' : 'Invalid signature',
-				verifiedAt: new Date(),
-				keyId: digitalSignature.keyId
+			isValid,
+			message: isValid ? 'Signature verified' : 'Invalid signature',
+			verifiedAt: new Date(),
+			keyId: digitalSignature.keyId
 			};
 		} catch (error) {
 			return {
-				isValid: false,
-				message: `Verification failed: ${error}`,
-				verifiedAt: new Date()
+			isValid: false,
+			message: `Verification failed: ${error}`,
+			verifiedAt: new Date()
 			};
 		}
 	}

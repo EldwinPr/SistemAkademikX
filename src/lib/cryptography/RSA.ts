@@ -1,14 +1,4 @@
 /**
- * RSA Implementation - Basic Cryptographic Primitives
- * 
- * Implements core RSA operations:
- * - Key generation (public/private key pairs)
- * - Signing (with private key)
- * - Verification (with public key)
- * - Modular arithmetic operations
- */
-
-/**
  * Big integer utilities for RSA operations
  */
 class RSAMath {
@@ -179,11 +169,11 @@ export interface RSAPrivateKey {
 /**
  * Core RSA implementation
  */
-export class RSA {
-  /**
-   * Generate RSA key pair
-   */
-  static generateKeyPair(keySize: number = 1024): RSAKeyPair {
+  export class RSA {
+    /**
+     * Generate RSA key pair
+     */
+    static generateKeyPair(keySize: number = 2048): RSAKeyPair {
     if (keySize < 512 || keySize % 2 !== 0) {
       throw new Error('Key size must be at least 512 bits and even');
     }
@@ -344,9 +334,14 @@ export class RSAUtils {
    */
   static verifyBytes(data: Uint8Array, signature: bigint, publicKey: RSAPublicKey): boolean {
     try {
-      const dataBigInt = this.bytesToBigInt(data);
-      const verified = RSA.verify(signature, publicKey);
-      return dataBigInt === verified;
+      // Convert the data (which should be a hash) to BigInt
+      const expectedHashBigInt = this.bytesToBigInt(data);
+      
+      // Decrypt the signature to get the original hash
+      const decryptedHashBigInt = RSA.verify(signature, publicKey);
+      
+      // Compare the hashes
+      return expectedHashBigInt === decryptedHashBigInt;
     } catch {
       return false;
     }
@@ -360,101 +355,59 @@ export class RSAUtils {
     // For encryption, we need padding, so less space available
     return Math.floor((keySize - 64) / 8); // Conservative estimate
   }
+
+  static signHash(hash: Uint8Array, privateKey: RSAPrivateKey): bigint {
+    if (hash.length < 20 || hash.length > 64) {
+      throw new Error('Hash length should be between 20-64 bytes (160-512 bits)');
+    }
+    return this.signBytes(hash, privateKey);
+  }
+
+  static verifyHashSignature(hash: Uint8Array, signature: bigint, publicKey: RSAPublicKey): boolean {
+    if (hash.length < 20 || hash.length > 64) {
+      throw new Error('Hash length should be between 20-64 bytes (160-512 bits)');
+    }
+    return this.verifyBytes(hash, signature, publicKey);
+  }
 }
 
 /**
  * Test function for RSA implementation
  */
 export function testRSA(): void {
-  console.log('=== RSA Basic Implementation Test ===');
+  console.log('=== RSA Implementation Test ===');
 
-  // Test 1: Key generation
-  console.log('\n--- Test 1: Key Generation ---');
-  const keyPair = RSA.generateKeyPair(1024);
+  // Test 1: Key generation with new default
+  console.log('\n--- Test 1: Key Generation (2048-bit default) ---');
+  const keyPair = RSA.generateKeyPair(); // Now defaults to 2048
   
-  console.log('Key size: 1024 bits');
+  console.log('Key size: 2048 bits (default)');
   console.log('Public key (n):', keyPair.publicKey.n.toString(16).substring(0, 32) + '...');
   console.log('Public key (e):', keyPair.publicKey.e.toString());
-  console.log('Private key (d):', keyPair.privateKey.d.toString(16).substring(0, 32) + '...');
 
-  // Test 2: Basic encryption/decryption
-  console.log('\n--- Test 2: Basic Encryption/Decryption ---');
-  const message = 12345n;
+  // Test 2: Hash-based signing (proper workflow)
+  console.log('\n--- Test 2: Hash-based Digital Signature ---');
+  const testData = "Hello, this is test data for signing";
+  const testDataBytes = new TextEncoder().encode(testData);
   
-  console.log('Original message:', message.toString());
+  // Hash the data first (simulating SHA-3)
+  const mockHash = new Uint8Array(32); // 256-bit hash
+  crypto.getRandomValues(mockHash);
   
-  const encrypted = RSA.encrypt(message, keyPair.publicKey);
-  console.log('Encrypted:', encrypted.toString(16).substring(0, 32) + '...');
+  console.log('Original data:', testData);
+  console.log('Hash (first 16 bytes):', Array.from(mockHash.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(''));
   
-  const decrypted = RSA.decrypt(encrypted, keyPair.privateKey);
-  console.log('Decrypted:', decrypted.toString());
-  console.log('Encryption/Decryption success:', message === decrypted);
+  const hashSignature = RSAUtils.signHash(mockHash, keyPair.privateKey);
+  console.log('Hash signature created');
+  
+  const hashVerification = RSAUtils.verifyHashSignature(mockHash, hashSignature, keyPair.publicKey);
+  console.log('Hash signature verification:', hashVerification);
 
-  // Test 3: Digital signature
-  console.log('\n--- Test 3: Digital Signature ---');
-  const document = 98765n;
+  // Test 3: Verify the fix works with tampered data
+  console.log('\n--- Test 3: Tampered Data Detection ---');
+  const tamperedHash = new Uint8Array(mockHash);
+  tamperedHash[0] = tamperedHash[0] ^ 0xFF; // Flip bits in first byte
   
-  console.log('Document to sign:', document.toString());
-  
-  const signature = RSA.sign(document, keyPair.privateKey);
-  console.log('Signature:', signature.toString(16).substring(0, 32) + '...');
-  
-  const verified = RSA.verify(signature, keyPair.publicKey);
-  console.log('Verification result:', verified.toString());
-  console.log('Signature valid:', document === verified);
-
-  // Test 4: Sign/verify bytes
-  console.log('\n--- Test 4: Byte Array Signing ---');
-  const dataBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-  
-  console.log('Data bytes:', Array.from(dataBytes));
-  
-  try {
-    const byteSignature = RSAUtils.signBytes(dataBytes, keyPair.privateKey);
-    console.log('Byte signature created');
-    
-    const byteVerification = RSAUtils.verifyBytes(dataBytes, byteSignature, keyPair.publicKey);
-    console.log('Byte verification:', byteVerification);
-  } catch (error) {
-    console.log('Byte signing test:', (error as Error).message);
-  }
-
-  // Test 5: Key serialization
-  console.log('\n--- Test 5: Key Serialization ---');
-  const publicKeyHex = RSAUtils.publicKeyToHex(keyPair.publicKey);
-  const privateKeyHex = RSAUtils.privateKeyToHex(keyPair.privateKey);
-  
-  console.log('Public key serialized');
-  console.log('Private key serialized');
-  
-  const restoredPublicKey = RSAUtils.publicKeyFromHex(publicKeyHex);
-  const restoredPrivateKey = RSAUtils.privateKeyFromHex(privateKeyHex);
-  
-  // Test with restored keys
-  const testMessage = 54321n;
-  const encWithRestored = RSA.encrypt(testMessage, restoredPublicKey);
-  const decWithRestored = RSA.decrypt(encWithRestored, restoredPrivateKey);
-  
-  console.log('Key serialization success:', testMessage === decWithRestored);
-
-  // Test 6: Different key sizes
-  console.log('\n--- Test 6: Different Key Sizes ---');
-  try {
-    const smallKeyPair = RSA.generateKeyPair(512);
-    const testData = 1000n;
-    
-    const smallEncrypted = RSA.encrypt(testData, smallKeyPair.publicKey);
-    const smallDecrypted = RSA.decrypt(smallEncrypted, smallKeyPair.privateKey);
-    
-    console.log('512-bit key test:', testData === smallDecrypted);
-  } catch (error) {
-    console.log('Small key test:', (error as Error).message);
-  }
-
-  console.log('\n--- Test 7: Max Data Size ---');
-  const maxSize1024 = RSAUtils.getMaxDataSize(1024);
-  const maxSize2048 = RSAUtils.getMaxDataSize(2048);
-  
-  console.log('Max data size for 1024-bit key:', maxSize1024, 'bytes');
-  console.log('Max data size for 2048-bit key:', maxSize2048, 'bytes');
+  const tamperedVerification = RSAUtils.verifyHashSignature(tamperedHash, hashSignature, keyPair.publicKey);
+  console.log('Tampered hash verification (should be false):', tamperedVerification);
 }

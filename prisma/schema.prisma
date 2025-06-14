@@ -1,116 +1,114 @@
-  generator client {
-    provider = "prisma-client-js"
-  }
+generator client {
+  provider = "prisma-client-js"
+}
 
-  datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
-    directUrl= env("DIRECT_URL")
-  }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
-  enum Role {
-    Mahasiswa
-    Dosen_Wali
-    Kepala_Program_Studi
-  }
+enum Role {
+  Mahasiswa
+  Dosen_Wali
+  Kepala_Program_Studi
+}
 
-  enum ProgramStudi {
-    Teknik_Informatika
-    Sistem_Teknologi_Informasi
-  }
+enum ProgramStudi {
+  Teknik_Informatika
+  Sistem_Teknologi_Informasi
+}
 
-  // User model with study program
-  model User {
-    id           String  @id @default(cuid())
-    username     String  @unique
-    password     String
-    role         Role
-    fullName     String
-    nim          String?
-    DosenId      String?
-    programStudi ProgramStudi?
-    
-    // RSA key pair for this user
-    publicKey    String?
-    privateKey   String?
-    
-    createdAt    DateTime @default(now())
-    
-    // Relations
-    advisor      User?   @relation("AdvisorStudent", fields: [DosenId], references: [id])
-    students     User[]  @relation("AdvisorStudent")
-    records      Transkrip[]
-    shares       SecretShare[]
-    directKeys   DirectKey[]
-    
-    // Constraints
-    @@unique([role, programStudi])
-    @@map("users")
-  }
+model User {
+  id           String  @id @default(cuid())
+  username     String  @unique
+  password     String
+  role         Role
+  fullName     String
+  nim          String?
+  DosenId      String?
+  
+  programStudi ProgramStudi?
+  
+  // RSA key pair for this user
+  publicKey    String?
+  privateKey   String?
+  
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  advisor      User?   @relation("AdvisorStudent", fields: [DosenId], references: [id])
+  students     User[]  @relation("AdvisorStudent")
+  records      Transkrip[]
+  shares       SecretShare[]
+  directKeys   DirectKey[]
+  sessions     Session[]
+  
+  // FIXED: New constraints that properly handle the business rules
+  @@unique([role, programStudi], name: "unique_head_per_program")
+  @@map("users")
+}
 
-  // Academic record storage
-  model Transkrip {
-    id               String   @id @default(cuid())
-    studentId        String
-    
-    // Encrypted data
-    encryptedData    String   @db.Text
-    digitalSignature String   @db.Text
-    keyId           String
-    
-    createdAt       DateTime @default(now())
-    createdBy       String
-    
-    // Relations
-    student         User     @relation(fields: [studentId], references: [id])
-    shares          SecretShare[]  // For group access
-    directKeys      DirectKey[]    // For direct access
-    
-    @@map("academic_records")
-  }
+// Academic record storage - enhanced for program-based access control
+model Transkrip {
+  id               String   @id @default(cuid())
+  studentId        String
+  
+  // Encrypted data
+  encryptedData    String   @db.Text
+  digitalSignature String   @db.Text
+  keyId           String
+  
+  createdAt       DateTime @default(now())
+  createdBy       String
+  
+  // Relations
+  student         User     @relation(fields: [studentId], references: [id])
+  shares          SecretShare[]  // For group access
+  directKeys      DirectKey[]    // For direct access
+  
+  @@map("academic_records")
+}
 
-  // Direct access keys (student, advisor, head can directly decrypt)
-  model DirectKey {
-    id        String @id @default(cuid())
-    recordId  String
-    userId    String
-    encryptedAESKey String @db.Text
-    createdAt DateTime @default(now())
-    
-    // Relations
-    record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
-    user      User      @relation(fields: [userId], references: [id])
-    
-    @@unique([recordId, userId]) 
-    @@map("direct_keys")
-  }
+// Rest of the models remain the same...
+model DirectKey {
+  id        String @id @default(cuid())
+  recordId  String
+  userId    String
+  encryptedAESKey String @db.Text
+  createdAt DateTime @default(now())
+  
+  record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+  
+  @@unique([recordId, userId]) 
+  @@map("direct_keys")
+}
 
-  // Shamir shares for group decryption (other advisors need 3+)
-  model SecretShare {
-    id        String @id @default(cuid())
-    recordId  String
-    advisorId String
-    
-    shareX    Int
-    shareY    String
-    prime     String  // Store prime for reconstruction
-    
-    createdAt DateTime @default(now())
-    
-    // Relations
-    record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
-    advisor   User      @relation(fields: [advisorId], references: [id])
-    
-    @@unique([recordId, advisorId])
-    @@map("secret_shares")
-  }
+model SecretShare {
+  id        String @id @default(cuid())
+  recordId  String
+  advisorId String
+  
+  shareX    Int
+  shareY    String
+  prime     String
+  
+  createdAt DateTime @default(now())
+  
+  record    Transkrip @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  advisor   User      @relation(fields: [advisorId], references: [id])
+  
+  @@unique([recordId, advisorId])
+  @@map("secret_shares")
+}
 
-  // Simple session management
-  model Session {
-    id        String   @id @default(cuid())
-    userId    String
-    token     String   @unique
-    expiresAt DateTime
-    
-    @@map("sessions")
-  }
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}

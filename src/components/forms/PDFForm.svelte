@@ -13,6 +13,11 @@
     // Decrypt mode variables
     let uploadedFile: File | null = null;
     let decryptKey = '';
+    let uploadError = '';
+
+    // Loading states
+    let isGenerating = false;
+    let isDecrypting = false;
 
     // Generate RC4 key when encryption is enabled
     $: if (shouldEncrypt && !generatedRC4Key) {
@@ -30,33 +35,149 @@
         generatedRC4Key = '';
         uploadedFile = null;
         decryptKey = '';
+        uploadError = '';
+        isGenerating = false;
+        isDecrypting = false;
     }
 
     function setMode(newMode: string) {
-        mode = newMode;
         resetForm();
-        mode = newMode; // Keep mode after reset
+        mode = newMode;
     }
-    let uploadError = '';
+
     function handleFileUpload(event: Event) {
         const target = event.target as HTMLInputElement;
+        const file = target.files?.[0];
         
-        const file = target.files?.[0]; 
+        uploadError = '';
         
-        if (!file) return;
+        if (!file) {
+            uploadedFile = null;
+            return;
+        }
         
         if (file.type !== 'application/pdf') {
             uploadError = 'Please select a PDF file';
+            uploadedFile = null;
             return;
         }
         
         if (file.size > 50 * 1024 * 1024) { // 50MB limit
             uploadError = 'File too large (max 50MB)';
+            uploadedFile = null;
             return;
         }
         
         uploadedFile = file;
-        uploadError = '';
+    }
+
+    async function handlePDFGeneration() {
+        if (!selectedRecordId) {
+            alert('Please select a record');
+            return;
+        }
+
+        isGenerating = true;
+
+        try {
+            const formData = new FormData();
+            formData.append('recordId', selectedRecordId);
+            formData.append('encrypt', shouldEncrypt.toString());
+            if (shouldEncrypt && generatedRC4Key) {
+                formData.append('rc4Key', generatedRC4Key);
+            }
+
+            const response = await fetch('/api/pdf/generate', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                throw new Error(errorData.message || 'Failed to generate PDF');
+            }
+
+            // Create download link
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            
+            // Get filename from response headers
+            const contentDisposition = response.headers.get('Content-Disposition');
+            const filename = contentDisposition 
+                ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+                : `transcript_${Date.now()}.pdf`;
+            
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            // Close form after successful download
+            closeForm();
+            
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            alert(`Error: ${errorMessage}`);
+        } finally {
+            isGenerating = false;
+        }
+    }
+
+    async function handlePDFDecryption() {
+        if (!uploadedFile || !decryptKey.trim()) {
+            alert('Please select a file and enter the decryption key');
+            return;
+        }
+
+        isDecrypting = true;
+
+        try {
+            const formData = new FormData();
+            formData.append('encryptedPdf', uploadedFile);
+            formData.append('rc4Key', decryptKey.trim());
+
+            const response = await fetch('/api/pdf/decrypt', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                throw new Error(errorData.message || 'Failed to decrypt PDF');
+            }
+
+            // Create download link
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            
+            // Get filename from response headers
+            const contentDisposition = response.headers.get('Content-Disposition');
+            const filename = contentDisposition 
+                ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+                : `decrypted_${uploadedFile.name}`;
+            
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            // Close form after successful download
+            closeForm();
+            
+        } catch (error) {
+            console.error('PDF decryption error:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            alert(`Error: ${errorMessage}`);
+        } finally {
+            isDecrypting = false;
+        }
     }
 </script>
 
@@ -96,7 +217,7 @@
 
                 {#if mode === 'download'}
                     <!-- Download PDF Tab -->
-                    <form method="POST" action="?/generatePdf">
+                    <form on:submit|preventDefault={handlePDFGeneration}>
                         <!-- Modal Header -->
                         <div class="bg-white px-6 py-4 border-b border-gray-200">
                             <div class="flex items-center justify-between">
@@ -116,7 +237,6 @@
                                 </label>
                                 <select 
                                     id="recordId" 
-                                    name="recordId" 
                                     bind:value={selectedRecordId}
                                     required 
                                     class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -139,7 +259,6 @@
                                 <div class="flex items-center">
                                     <input 
                                         id="encrypt" 
-                                        name="encrypt" 
                                         type="checkbox" 
                                         bind:checked={shouldEncrypt}
                                         class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
@@ -174,8 +293,6 @@
                                             <strong>PENTING:</strong> Simpan kunci ini dengan aman! Anda membutuhkannya untuk membuka PDF terenkripsi nanti.
                                         </p>
                                     </div>
-                                    <!-- Hidden input to send the key to server -->
-                                    <input type="hidden" name="rc4Key" value={generatedRC4Key} />
                                 {/if}
                             </div>
 
@@ -203,15 +320,26 @@
                             <div class="flex gap-4">
                                 <button 
                                     type="submit" 
-                                    disabled={!selectedRecordId}
+                                    disabled={!selectedRecordId || isGenerating}
                                     class="flex-1 justify-center rounded-md bg-green-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
                                 >
-                                    {shouldEncrypt ? 'Download PDF Terenkripsi' : 'Download PDF'}
+                                    {#if isGenerating}
+                                        <span class="flex items-center justify-center">
+                                            <svg class="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Generating...
+                                        </span>
+                                    {:else}
+                                        {shouldEncrypt ? 'Download PDF Terenkripsi' : 'Download PDF'}
+                                    {/if}
                                 </button>
                                 <button 
                                     type="button" 
                                     on:click={resetForm}
-                                    class="justify-center rounded-md bg-gray-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-700"
+                                    disabled={isGenerating}
+                                    class="justify-center rounded-md bg-gray-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 disabled:bg-gray-400"
                                 >
                                     Reset
                                 </button>
@@ -221,7 +349,7 @@
 
                 {:else}
                     <!-- Decrypt PDF Tab -->
-                    <form method="POST" action="?/decryptPdf" enctype="multipart/form-data">
+                    <form on:submit|preventDefault={handlePDFDecryption}>
                         <!-- Modal Header -->
                         <div class="bg-white px-6 py-4 border-b border-gray-200">
                             <div class="flex items-center justify-between">
@@ -241,16 +369,18 @@
                                 </label>
                                 <input 
                                     id="pdfFile" 
-                                    name="pdfFile" 
                                     type="file" 
                                     accept=".pdf"
                                     required
                                     on:change={handleFileUpload}
                                     class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                                 />
+                                {#if uploadError}
+                                    <p class="mt-1 text-xs text-red-500">{uploadError}</p>
+                                {/if}
                                 {#if uploadedFile}
                                     <p class="mt-1 text-xs text-gray-500">
-                                        File dipilih: {uploadedFile.name}
+                                        File dipilih: {uploadedFile.name} ({(uploadedFile.size / 1024).toFixed(1)} KB)
                                     </p>
                                 {/if}
                             </div>
@@ -262,12 +392,11 @@
                                 </label>
                                 <input 
                                     id="decryptKey" 
-                                    name="decryptKey" 
                                     type="text" 
                                     bind:value={decryptKey}
                                     required
                                     placeholder="Masukkan kunci RC4 yang digunakan saat enkripsi"
-                                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono"
+                                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm"
                                 />
                                 <p class="mt-1 text-xs text-gray-500">
                                     Gunakan kunci yang sama dengan yang ditampilkan saat download PDF terenkripsi
@@ -286,7 +415,7 @@
                                             <li>Pastikan file yang dipilih adalah PDF yang terenkripsi dengan RC4</li>
                                             <li>Kunci dekripsi harus sama persis dengan kunci yang ditampilkan saat download</li>
                                             <li>Jika kunci salah, proses dekripsi akan gagal</li>
-                                            <li>PDF yang berhasil didekripsi akan ditampilkan atau diunduh</li>
+                                            <li>PDF yang berhasil didekripsi akan otomatis diunduh</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -298,15 +427,26 @@
                             <div class="flex gap-4">
                                 <button 
                                     type="submit" 
-                                    disabled={!uploadedFile || !decryptKey.trim()}
+                                    disabled={!uploadedFile || !decryptKey.trim() || isDecrypting}
                                     class="flex-1 justify-center rounded-md bg-red-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
                                 >
-                                    Dekripsi & Buka PDF
+                                    {#if isDecrypting}
+                                        <span class="flex items-center justify-center">
+                                            <svg class="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Decrypting...
+                                        </span>
+                                    {:else}
+                                        Dekripsi & Download PDF
+                                    {/if}
                                 </button>
                                 <button 
                                     type="button" 
                                     on:click={resetForm}
-                                    class="justify-center rounded-md bg-gray-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-700"
+                                    disabled={isDecrypting}
+                                    class="justify-center rounded-md bg-gray-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 disabled:bg-gray-400"
                                 >
                                     Reset
                                 </button>

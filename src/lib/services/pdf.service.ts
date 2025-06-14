@@ -14,63 +14,195 @@ import type {
 
 export class PDFService {
 	/**
-	 * Generate transcript PDF (mock implementation)
+	 * Generate transcript PDF with real PDF structure
 	 */
-	// static generateTranscript(
-	// 	record: AcademicRecord,
-	// 	signature?: DigitalSignature,
-	// 	config?: PDFTranscriptConfig,
-	// 	generatedBy: string = 'system'
-	// ): GeneratedTranscript {
-	// 	try {
-	// 		const pdfContent = this.createPDFContent(record, signature, config);
-	// 		const pdfData = new TextEncoder().encode(pdfContent);
-			
-	// 		return {
-	// 			id: this.generateId(),
-	// 			studentId: record.nim,
-	// 			fileName: `transcript_${record.nim}_${Date.now()}.pdf`,
-	// 			isEncrypted: false,
-	// 			fileData: pdfData,
-	// 			generatedAt: new Date(),
-	// 			generatedBy
-	// 		};
-	// 	} catch (error) {
-	// 		const errorMessage = error instanceof Error ? error.message : String(error);
-	// 		throw new Error(`Failed to generate PDF: ${errorMessage}`);
-	// 	}
-	// }
 	static generateTranscript(
-    record: AcademicRecord,
-    signatureData?: any,
-    config?: PDFTranscriptConfig,
-    generatedBy: string = 'system'
-): GeneratedTranscript {
-    try {
-        const pdfContent = this.createPDFContent(record, signatureData, config);
-        const pdfData = new TextEncoder().encode(pdfContent);
-        
-        return {
-            id: this.generateId(),
-            studentId: record.nim, // Use NIM as student identifier
-            fileName: `transcript_${record.nim}_${Date.now()}.pdf`,
-            isEncrypted: false,
-            fileData: pdfData,
-            generatedAt: new Date(),
-            generatedBy
-        };
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to generate PDF: ${errorMessage}`);
-    }
-}
-	private static generateKey(): string {
-		return BBSUtils.generateSecureHex(32);
+		record: AcademicRecord,
+		signatureData?: any,
+		config?: PDFTranscriptConfig,
+		generatedBy: string = 'system'
+	): GeneratedTranscript {
+		try {
+			const pdfContent = this.createRealPDFContent(record, signatureData, config);
+			const pdfData = this.stringToPDFBytes(pdfContent);
+			
+			return {
+				id: this.generateId(),
+				studentId: record.nim,
+				fileName: `transcript_${record.nim}_${Date.now()}.pdf`,
+				isEncrypted: false,
+				fileData: pdfData,
+				generatedAt: new Date(),
+				generatedBy
+			};
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			throw new Error(`Failed to generate PDF: ${errorMessage}`);
+		}
 	}
 
-	private static generateId(): string {
-		return `pdf_${Date.now()}_${BBSUtils.generateSecureHex(4)}`;
+	/**
+	 * Create real PDF content with proper PDF structure
+	 */
+	private static createRealPDFContent(record: AcademicRecord, signatureData?: any, config?: PDFTranscriptConfig): string {
+		// Calculate total SKS
+		const totalSKS = record.courses.reduce((sum, course) => sum + course.credits, 0);
+		
+		// Create PDF content string for stream
+		let contentStream = `BT
+/F1 16 Tf
+50 750 Td
+(${config?.headerText || 'INSTITUT TEKNOLOGI BANDUNG'}) Tj
+0 -30 Td
+/F1 14 Tf
+(TRANSKRIP AKADEMIK) Tj
+0 -40 Td
+/F1 12 Tf
+(Nama: ${this.escapePDFString(record.name)}) Tj
+0 -20 Td
+(NIM: ${record.nim}) Tj
+0 -20 Td
+(IPK: ${record.ipk.toFixed(2)}) Tj
+0 -20 Td
+(Total SKS: ${totalSKS}) Tj
+0 -30 Td
+/F1 10 Tf
+(DAFTAR MATA KULIAH:) Tj`;
+
+		// Add courses
+		record.courses.forEach((course, index) => {
+			contentStream += `
+0 -15 Td
+(${index + 1}. ${this.escapePDFString(course.code)} - ${this.escapePDFString(course.name)}) Tj
+0 -12 Td
+(   ${course.credits} SKS - Nilai: ${course.grade}) Tj`;
+		});
+
+		// Add signature if provided
+		if (signatureData && config?.includeSignature !== false) {
+			contentStream += `
+0 -30 Td
+/F1 8 Tf
+(--- TANDA TANGAN DIGITAL ---) Tj`;
+			
+			if (signatureData.signedBy) {
+				contentStream += `
+0 -12 Td
+(Ditandatangani oleh: ${this.escapePDFString(signatureData.signedBy)}) Tj
+0 -12 Td
+(Status: ${signatureData.status || 'TERVERIFIKASI'}) Tj`;
+			}
+			
+			if (signatureData.signature) {
+				const shortSig = signatureData.signature.substring(0, 32);
+				contentStream += `
+0 -12 Td
+(Signature: ${shortSig}...) Tj`;
+			}
+		}
+
+		// Add footer
+		if (config?.includeWatermark !== false) {
+			contentStream += `
+0 -40 Td
+/F1 8 Tf
+([TRANSKRIP RESMI - INSTITUT TEKNOLOGI BANDUNG]) Tj
+0 -12 Td
+(Dicetak pada: ${new Date().toLocaleDateString('id-ID')}) Tj`;
+		}
+
+		contentStream += `
+ET`;
+
+		const streamLength = new TextEncoder().encode(contentStream).length;
+
+		// Build complete PDF with proper structure
+		const pdf = `%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/MediaBox [0 0 612 792]
+/Resources <<
+/Font <<
+/F1 4 0 R
+>>
+>>
+/Contents 5 0 R
+>>
+endobj
+
+4 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+
+5 0 obj
+<<
+/Length ${streamLength}
+>>
+stream
+${contentStream}
+endstream
+endobj
+
+xref
+0 6
+0000000000 65535 f 
+0000000010 00000 n 
+0000000053 00000 n 
+0000000125 00000 n 
+0000000348 00000 n 
+0000000565 00000 n 
+trailer
+<<
+/Size 6
+/Root 1 0 R
+>>
+startxref
+${565 + streamLength + 50}
+%%EOF`;
+
+		return pdf;
 	}
+
+	/**
+	 * Escape special characters for PDF strings
+	 */
+	private static escapePDFString(str: string): string {
+		return str
+			.replace(/\\/g, '\\\\')
+			.replace(/\(/g, '\\(')
+			.replace(/\)/g, '\\)')
+			.replace(/\r/g, '\\r')
+			.replace(/\n/g, '\\n');
+	}
+
+	/**
+	 * Convert string to PDF bytes
+	 */
+	private static stringToPDFBytes(pdfString: string): Uint8Array {
+		return new TextEncoder().encode(pdfString);
+	}
+
 	/**
 	 * Encrypt PDF with RC4
 	 */
@@ -138,81 +270,17 @@ export class PDFService {
 		return transcript;
 	}
 
-	private static createPDFContent(record: AcademicRecord, signatureData?: any, config?: PDFTranscriptConfig): string {
-		let content = '%PDF-1.4\n';
-		content += `${config?.headerText || 'INSTITUT TEKNOLOGI BANDUNG'}\n`;
-		content += `TRANSKRIP AKADEMIK\n\n`;
-		content += `Student: ${record.name}\n`;
-		content += `NIM: ${record.nim}\n`;
-		content += `IPK: ${record.ipk}\n\n`;
-		content += 'COURSES:\n';
-		
-		record.courses.forEach((course, i) => {
-			content += `${i + 1}. ${course.code} - ${course.name} (${course.credits} SKS) - ${course.grade}\n`;
-		});
-		
-		if (signatureData && config?.includeSignature !== false) {
-			content += '\n--- DIGITAL SIGNATURE ---\n';
-			
-			// Handle both old format (signedBy, status) and new format (DigitalSignature)
-			if (signatureData.signedBy) {
-				// Old format
-				content += `Signed by: ${signatureData.signedBy}\n`;
-				content += `Status: ${signatureData.status}\n`;
-				if (signatureData.signature) {
-					content += `Signature: ${signatureData.signature.substring(0, 64)}...\n`;
-				}
-			} else if (signatureData.algorithm) {
-				// New DigitalSignature format
-				content += `Algorithm: ${signatureData.algorithm}\n`;
-				content += `Key ID: ${signatureData.keyId}\n`;
-				content += `Timestamp: ${signatureData.timestamp.toISOString()}\n`;
-				content += `Data Hash: ${signatureData.dataHash.substring(0, 32)}...\n`;
-				content += `Signature: ${signatureData.signature.substring(0, 64)}...\n`;
-			}
-		}
-		
-		if (config?.includeWatermark !== false) {
-			content += '\n[OFFICIAL TRANSCRIPT - INSTITUT TEKNOLOGI BANDUNG]\n';
-		}
-		
-		content += '\n%%EOF';
-		return content;
-	}
 	/**
-	 * Create PDF content (mock)
+	 * Generate secure key
 	 */
-	// private static createPDFContent(record: AcademicRecord, signature?: DigitalSignature, config?: PDFTranscriptConfig): string {
-	// 	let content = '%PDF-1.4\n';
-	// 	content += `${config?.headerText || 'ACADEMIC TRANSCRIPT'}\n\n`;
-	// 	content += `Student: ${record.name}\n`;
-	// 	content += `NIM: ${record.nim}\n`;
-	// 	content += `IPK: ${record.ipk}\n\n`;
-	// 	content += 'COURSES:\n';
-		
-	// 	record.courses.forEach((course, i) => {
-	// 		content += `${i + 1}. ${course.code} - ${course.name} (${course.credits} SKS) - ${course.grade}\n`;
-	// 	});
-		
-	// 	if (signature && config?.includeSignature) {
-	// 		content += '\n--- DIGITAL SIGNATURE ---\n';
-	// 		content += `Signed: ${signature.timestamp.toISOString()}\n`;
-	// 		content += `Key ID: ${signature.keyId}\n`;
-	// 	}
-		
-	// 	if (config?.includeWatermark) {
-	// 		content += '\n[OFFICIAL TRANSCRIPT]\n';
-	// 	}
-		
-	// 	content += '\n%%EOF';
-	// 	return content;
-	// }
+	private static generateKey(): string {
+		return BBSUtils.generateSecureHex(32);
+	}
 
-	// private static generateKey(): string {
-	// 	return BBSUtils.generateSecureHex(32);
-	// }
-
-	// private static generateId(): string {
-	// 	return `pdf_${Date.now()}_${BBSUtils.generateSecureHex(4)}`;
-	// }
+	/**
+	 * Generate unique ID
+	 */
+	private static generateId(): string {
+		return `pdf_${Date.now()}_${BBSUtils.generateSecureHex(4)}`;
+	}
 }

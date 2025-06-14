@@ -16,6 +16,32 @@
 	};
 	const gradeOptions = Object.keys(gradePoints);
 
+	const sampleSTICourses = [
+		{ code: 'II2130', name: 'Sistem dan Arsitektur Komputer', credits: 2, grade: 'A' },
+		{ code: 'II2110', name: 'Matematika STI', credits: 2, grade: 'AB' },
+		{ code: 'II2111', name: 'Probabilitas dan Statistik', credits: 2, grade: 'A' },
+		{ code: 'TI3005', name: 'Organisasi & Manajemen Perusahaan Industri', credits: 2, grade: 'B' },
+		{ code: 'IF2140', name: 'Pemodelan Basis Data', credits: 2, grade: 'AB' },
+		{ code: 'IF2111', name: 'Algoritma dan Struktur Data STI', credits: 2, grade: 'A' },
+		{ code: 'II2250', name: 'Manajemen Basis Data', credits: 2, grade: 'A' },
+		{ code: 'II2260', name: 'Sistem Embedded', credits: 2, grade: 'AB' },
+		{ code: 'II2230', name: 'Jaringan Komputer', credits: 2, grade: 'A' },
+		{ code: 'II2220', name: 'Manajemen Sumber Daya STI', credits: 2, grade: 'B' }
+	];
+
+	const sampleIFCourses = [
+		{ code: 'IF2121', name: 'Logika Komputasional', credits: 2, grade: 'A' },
+		{ code: 'IF2110', name: 'Algoritma & Struktur Data', credits: 2, grade: 'A' },
+		{ code: 'IF2120', name: 'Matematika Diskrit', credits: 2, grade: 'AB' },
+		{ code: 'IF2124', name: 'Teori Bahasa Formal dan Otomata', credits: 2, grade: 'A' },
+		{ code: 'IF2123', name: 'Aljabar Linier dan Geometri', credits: 2, grade: 'AB' },
+		{ code: 'IF2130', name: 'Organisasi dan Arsitektur Komputer', credits: 2, grade: 'A' },
+		{ code: 'IF2210', name: 'Pemrograman Berorientasi Objek', credits: 2, grade: 'A' },
+		{ code: 'IF2211', name: 'Strategi Algoritma', credits: 2, grade: 'AB' },
+		{ code: 'IF2220', name: 'Probabilitas dan Statistika', credits: 2, grade: 'A' },
+		{ code: 'IF2230', name: 'Sistem Operasi', credits: 2, grade: 'B' }
+	];
+
 	// Generate AES key when form is shown
 	$: if (showForm && !generatedAESKey) {
 		generatedAESKey = BBSUtils.generateSecureAESKey(256);
@@ -68,6 +94,30 @@
 		showForm = false;
 		// Reset form when closing
 		resetForm();
+	}
+
+	function quickFill10Courses() {
+		const studentSelect = document.getElementById('student') as HTMLSelectElement;
+		const selectedStudentId = studentSelect?.value;
+		
+		if (!selectedStudentId) {
+			alert('Pilih mahasiswa terlebih dahulu untuk quick fill yang sesuai');
+			return;
+		}
+		
+		const selectedStudent = students.find(s => s.id === selectedStudentId);
+		const isSTI = selectedStudent?.nim?.startsWith('182') || selectedStudent?.programStudi === 'Sistem_Teknologi_Informasi';
+		
+		// Use appropriate course set based on student's program
+		const coursesToUse = isSTI ? sampleSTICourses : sampleIFCourses;
+		
+		courses = [...coursesToUse];
+		calculateIPK();
+	}
+
+	function clearAllCourses() {
+		courses = [{ code: '', name: '', credits: 2, grade: 'A' }];
+		ipk = 0.0;
 	}
 
 	function resetForm() {
@@ -183,7 +233,6 @@
 								<span class="text-lg">+</span>
 								Tambah Mata Kuliah
 							</button>
-							
 							{#if !canAddCourse}
 								<p class="text-xs text-gray-500">
 									{#if courses.length >= 12}
@@ -193,6 +242,29 @@
 									{/if}
 								</p>
 							{/if}
+						</div>
+						<div class="flex gap-4 items-center bg-yellow-50 border border-yellow-200 rounded-md p-4">
+							<div class="flex-1">
+								<h4 class="text-sm font-medium text-yellow-800">Quick Fill Options</h4>
+								<p class="text-xs text-yellow-700 mt-1">Isi otomatis dengan 10 mata kuliah standar sesuai program studi</p>
+							</div>
+							<div class="flex gap-2">
+								<button 
+									type="button" 
+									on:click={quickFill10Courses}
+									class="flex items-center gap-2 rounded-md bg-yellow-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-yellow-700"
+								>
+									<span class="text-lg">⚡</span>
+									Quick Fill 10 MK
+								</button>
+								<button 
+									type="button" 
+									on:click={clearAllCourses}
+									class="rounded-md bg-gray-600 py-2 px-4 text-sm font-semibold text-white shadow-sm hover:bg-gray-700"
+								>
+									Clear All
+								</button>
+							</div>
 						</div>
 
 						<!-- Courses Table -->

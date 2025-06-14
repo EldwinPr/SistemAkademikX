@@ -11,17 +11,17 @@
 	let error = '';
 	let success = '';
 
-	// Test users from seed
+	// Updated test users from new seed
 	const testUsers = [
-		{ username: 'KaprodiIF', password: 'admin123', role: 'Kaprodi IF' },
-		{ username: 'KaprodiSTI', password: 'admin123', role: 'Kaprodi STI' },
-		{ username: 'advisor1', password: 'admin123', role: 'Dosen Wali 1' },
-		{ username: 'advisor2', password: 'admin123', role: 'Dosen Wali 2' },
-		{ username: 'advisor3', password: 'admin123', role: 'Dosen Wali 3' },
-		{ username: 'advisor4', password: 'admin123', role: 'Dosen Wali 4' },
-		{ username: 'advisor5', password: 'admin123', role: 'Dosen Wali 5' },
-		{ username: 'student1', password: 'admin123', role: 'Mahasiswa IF' },
-		{ username: 'student2', password: 'admin123', role: 'Mahasiswa STI' }
+		{ username: 'kaprodiIF', password: 'admin123', role: 'Kaprodi Teknik Informatika' },
+		{ username: 'kaprodiSTI', password: 'admin123', role: 'Kaprodi Sistem & Teknologi Informasi' },
+		{ username: 'doswal1', password: 'admin123', role: 'Dosen Wali Pertama' },
+		{ username: 'doswal2', password: 'admin123', role: 'Dosen Wali Kedua' },
+		{ username: 'doswal3', password: 'admin123', role: 'Dosen Wali Ketiga' },
+		{ username: 'doswal4', password: 'admin123', role: 'Dosen Wali Keempat' },
+		{ username: 'doswal5', password: 'admin123', role: 'Dosen Wali Kelima' },
+		{ username: 'muridSTI1', password: 'admin123', role: 'Mahasiswa STI (18222001)' },
+		{ username: 'muridIF1', password: 'admin123', role: 'Mahasiswa IF (13522001)' }
 	];
 
 	$: redirectTo = $page.url.searchParams.get('redirect') || '/';
@@ -186,16 +186,6 @@
 						</button>
 					</div>
 				</form>
-
-				<div class="mt-8 rounded-lg bg-gray-100 p-4">
-					<h3 class="text-sm font-medium text-gray-800 mb-2">Informasi Akun Uji Coba:</h3>
-					<div class="text-xs text-gray-600 space-y-1">
-						<p><strong>Kaprodi IF:</strong> KaprodiIF / admin123</p>
-                        <p><strong>Kaprodi STI:</strong> KaprodiSTI / admin123</p>
-						<p><strong>Dosen Wali:</strong> advisor1-5 / admin123</p>
-						<p><strong>Mahasiswa:</strong> student1-2 / admin123</p>
-					</div>
-				</div>
 			</div>
 		</div>
 	</div>
