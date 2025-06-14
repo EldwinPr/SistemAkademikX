@@ -59,7 +59,7 @@
 		<div class="fixed inset-0 z-50 overflow-y-auto">
 			<div class="flex min-h-screen items-center justify-center p-4">
 				<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={() => showStudentsView = false}></div>
-				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl">
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh]">
 					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
 						<div class="flex items-center justify-between">
 							<h3 class="text-xl font-semibold text-gray-900">Mahasiswa Bimbingan Anda</h3>
@@ -68,7 +68,7 @@
 							</button>
 						</div>
 					</div>
-					<div class="p-6 max-h-96 overflow-y-auto">
+					<div class="p-6 max-h-[80vh] overflow-y-auto">
 						{#if students.length > 0}
 							<div class="overflow-x-auto">
 								<table class="min-w-full divide-y divide-gray-200">

@@ -262,15 +262,21 @@ export const actions: Actions = {
 			});
 			if (!head?.publicKey) return fail(500, { error: 'Could not find public key to verify signature.' });
 			
-			const signature = {
-				signature: record.digitalSignature,
-				algorithm: 'RSA-SHA3' as const,
-				keyId: record.keyId,
-				timestamp: record.createdAt,
-				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
-			};
+			let verification = { isValid: false, message: 'Program head public key not found' };
 
-			const verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
+			if (head?.publicKey) {
+				// Only attempt verification if we have the head's public key
+				const signature = {
+					signature: record.digitalSignature, // This might be empty string ""
+					algorithm: 'RSA-SHA3' as const,
+					keyId: record.keyId,
+					timestamp: record.createdAt,
+					dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
+				};
+				
+				// The SignatureService will now handle empty signatures gracefully
+				verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
+			}
 			
 			return { success: true, record: decryptedRecord, verification };
 
@@ -278,9 +284,7 @@ export const actions: Actions = {
 			console.error("Error viewing record:", error);
 			return fail(500, { error: error.message || 'Failed to view record.' });
 		}
-	},
-	
-	viewMyTranscript: async ({ locals }) => {
+	},viewMyTranscript: async ({ locals }) => {
 		if (!locals.user) throw redirect(302, '/auth/login');
 		
 		const userId = locals.user.user.id;
@@ -346,31 +350,45 @@ export const actions: Actions = {
 				select: { publicKey: true, fullName: true }
 			});
 
-			if (!head?.publicKey) {
-				return fail(500, { error: 'Program head public key not found for signature verification.' });
+			// Initialize verification variables
+			let verificationStatus = 'UNVERIFIED';
+			let verificationMessage = 'Program head public key not found';
+			let signedBy = 'Not signed';
+
+			if (head?.publicKey) {
+				// Only attempt verification if we have the head's public key
+				const signature = {
+					signature: record.digitalSignature,
+					algorithm: 'RSA-SHA3' as const,
+					keyId: record.keyId,
+					timestamp: record.createdAt,
+					dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
+				};
+
+				try {
+					const verification = SignatureService.verifyAcademicRecord(
+						decryptedRecord, 
+						signature, 
+						head.publicKey
+					);
+
+					verificationStatus = verification.isValid ? 'VERIFIED' : 'UNVERIFIED';
+					verificationMessage = verification.message;
+					signedBy = verification.isValid ? head.fullName : 'Not signed';
+				} catch (verificationError) {
+					console.error('Signature verification error:', verificationError);
+					verificationStatus = 'UNVERIFIED';
+					verificationMessage = 'Signature verification failed';
+					signedBy = 'Not signed';
+				}
 			}
-
-			// Verify digital signature
-			const signature = {
-				signature: record.digitalSignature,
-				algorithm: 'RSA-SHA3' as const,
-				keyId: record.keyId,
-				timestamp: record.createdAt,
-				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
-			};
-
-			const verification = SignatureService.verifyAcademicRecord(
-				decryptedRecord, 
-				signature, 
-				head.publicKey
-			);
 
 			// Prepare transcript data with verification status
 			const transcript = {
 				...decryptedRecord,
-				verificationStatus: verification.isValid ? 'VERIFIED' : 'UNVERIFIED',
-				verificationMessage: verification.message,
-				signedBy: head.fullName,
+				verificationStatus,
+				verificationMessage,
+				signedBy,
 				recordCreatedAt: record.createdAt
 			};
 
@@ -386,9 +404,7 @@ export const actions: Actions = {
 				error: error.message || 'An unexpected error occurred while loading your transcript.' 
 			});
 		}
-	},
-
-	groupDecrypt: async ({ request, locals }) => {
+	},groupDecrypt: async ({ request, locals }) => {
 		if (locals.user?.permissions.canParticipateInGroupDecryption !== true) {
 			return fail(403, { error: 'Forbidden: Only advisors can participate in group decryption.' });
 		}
@@ -466,31 +482,42 @@ export const actions: Actions = {
 
 			const decryptedRecord = CryptoService.decryptAcademicRecord(record.encryptedData, aesKey);
 
-			// Verify digital signature
+			// Get program head for signature verification
 			const head = await db.user.findFirst({
 				where: { role: 'Kepala_Program_Studi', programStudi: record.student.programStudi! }
 			});
 
-			if (!head?.publicKey) {
-				return fail(500, { error: 'Program head public key not found for signature verification.' });
+			// Initialize verification variables
+			let verificationStatus = 'UNVERIFIED';
+			let verificationMessage = 'Program head public key not found';
+
+			if (head?.publicKey) {
+				// Only attempt verification if we have the head's public key
+				const signature = {
+					signature: record.digitalSignature,
+					algorithm: 'RSA-SHA3' as const,
+					keyId: record.keyId,
+					timestamp: record.createdAt,
+					dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
+				};
+
+				try {
+					const verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
+					verificationStatus = verification.isValid ? 'VERIFIED' : 'UNVERIFIED';
+					verificationMessage = verification.message;
+				} catch (verificationError) {
+					console.error('Group decrypt signature verification error:', verificationError);
+					verificationStatus = 'UNVERIFIED';
+					verificationMessage = 'Signature verification failed';
+				}
 			}
-
-			const signature = {
-				signature: record.digitalSignature,
-				algorithm: 'RSA-SHA3' as const,
-				keyId: record.keyId,
-				timestamp: record.createdAt,
-				dataHash: SHA3Utils.toHex(SHA3Utils.hashAcademicRecord(decryptedRecord))
-			};
-
-			const verification = SignatureService.verifyAcademicRecord(decryptedRecord, signature, head.publicKey);
 
 			// Return data in format expected by component
 			return { 
 				groupDecryptSuccess: true, 
 				decryptedData: decryptedRecord,
-				verificationStatus: verification.isValid ? 'VERIFIED' : 'UNVERIFIED',
-				verificationMessage: verification.message,
+				verificationStatus,
+				verificationMessage,
 				studentInfo: {
 					name: record.student.fullName,
 					nim: record.student.nim

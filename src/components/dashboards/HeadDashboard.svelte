@@ -189,7 +189,7 @@
 		<div class="fixed inset-0 z-50 overflow-y-auto">
 			<div class="flex min-h-screen items-center justify-center p-4">
 				<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={closeTranscriptView}></div>
-				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl">
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh]">
 					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
 						<div class="flex items-center justify-between">
 							<h3 class="text-xl font-semibold text-gray-900">Detail Transkrip Akademik</h3>
@@ -198,7 +198,7 @@
 							</button>
 						</div>
 					</div>
-					<div class="p-6 max-h-96 overflow-y-auto">
+					<div class="p-6 max-h-[80vh] overflow-y-auto">
 						<TranscriptViewer 
 							transcript={viewedTranscript} 
 							showTitle={false}
@@ -215,7 +215,7 @@
 		<div class="fixed inset-0 z-50 overflow-y-auto">
 			<div class="flex min-h-screen items-center justify-center p-4">
 				<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={() => {showAllTranscriptsView = false; viewedTranscript = null;}}></div>
-				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-5xl">
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh]">
 					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
 						<div class="flex items-center justify-between">
 							<h3 class="text-xl font-semibold text-gray-900">Lihat Semua Data Transkrip</h3>
@@ -224,7 +224,7 @@
 							</button>
 						</div>
 					</div>
-					<div class="p-6 max-h-96 overflow-y-auto">
+					<div class="p-6 max-h-[80vh] overflow-y-auto">
 						<h3 class="font-semibold text-lg mb-4">Daftar Transkrip Program Studi</h3>
 						<div class="space-y-3">
 							{#each programRecords as record}
@@ -277,7 +277,7 @@
 		<div class="fixed inset-0 z-50 overflow-y-auto">
 			<div class="flex min-h-screen items-center justify-center p-4">
 				<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={() => showSigningView = false}></div>
-				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-5xl">
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh]">
 					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
 						<div class="flex items-center justify-between">
 							<h3 class="text-xl font-semibold text-gray-900">Tanda Tangan Digital Transkrip</h3>
@@ -286,7 +286,7 @@
 							</button>
 						</div>
 					</div>
-					<div class="p-6 max-h-96 overflow-y-auto">
+					<div class="p-6 max-h-[80vh] overflow-y-auto">
 						<div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
 							<p class="text-sm text-blue-800">
 								ℹ️ <strong>Info:</strong> Kelola tanda tangan digital untuk setiap transkrip. 

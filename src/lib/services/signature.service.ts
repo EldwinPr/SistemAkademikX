@@ -45,7 +45,7 @@ export class SignatureService {
 	}
 
 	/**
-	 * Verify academic record signature
+	 * Verify academic record signature - FIXED: Handle empty signatures
 	 */
 	static verifyAcademicRecord(
 		record: AcademicRecord,
@@ -53,35 +53,63 @@ export class SignatureService {
 		publicKeyHex: string
 		): SignatureVerification {
 		try {
+			if (!digitalSignature.signature || digitalSignature.signature.trim() === '') {
+				return {
+					isValid: false,
+					message: 'Record has not been signed yet',
+					verifiedAt: new Date()
+				};
+			}
+
+			const hexPattern = /^[0-9a-fA-F]+$/;
+			if (!hexPattern.test(digitalSignature.signature)) {
+				return {
+					isValid: false,
+					message: 'Invalid signature format',
+					verifiedAt: new Date()
+				};
+			}
+
 			// Step 1: Hash the current record data
 			const currentHash = SHA3Utils.hashAcademicRecord(record);
 			const currentHashHex = SHA3Utils.toHex(currentHash);
 			
 			// Step 2: Check if record was modified by comparing hashes
 			if (currentHashHex !== digitalSignature.dataHash) {
-			return {
-				isValid: false,
-				message: 'Record has been modified',
-				verifiedAt: new Date()
-			};
+				return {
+					isValid: false,
+					message: 'Record has been modified',
+					verifiedAt: new Date()
+				};
 			}
 			
 			// Step 3: Verify the signature against the hash
 			const publicKey = RSAUtils.publicKeyFromHex(publicKeyHex);
-			const signature = BigInt('0x' + digitalSignature.signature);
-			const isValid = RSAUtils.verifyHashSignature(currentHash, signature, publicKey); // Use new method
+
+			let signature: bigint;
+			try {
+				signature = BigInt('0x' + digitalSignature.signature);
+			} catch (bigIntError) {
+				return {
+					isValid: false,
+					message: 'Cannot parse signature',
+					verifiedAt: new Date()
+				};
+			}
+
+			const isValid = RSAUtils.verifyHashSignature(currentHash, signature, publicKey);
 			
 			return {
-			isValid,
-			message: isValid ? 'Signature verified' : 'Invalid signature',
-			verifiedAt: new Date(),
-			keyId: digitalSignature.keyId
+				isValid,
+				message: isValid ? 'Signature verified' : 'Invalid signature',
+				verifiedAt: new Date(),
+				keyId: digitalSignature.keyId
 			};
 		} catch (error) {
 			return {
-			isValid: false,
-			message: `Verification failed: ${error}`,
-			verifiedAt: new Date()
+				isValid: false,
+				message: `Verification failed: ${error}`,
+				verifiedAt: new Date()
 			};
 		}
 	}
@@ -104,7 +132,7 @@ export class SignatureService {
 	}
 
 	/**
-	 * Verify any data signature
+	 * Verify any data signature - FIXED: Handle empty signatures
 	 */
 	static verifyData(
 		data: string | Uint8Array,
@@ -112,6 +140,23 @@ export class SignatureService {
 		publicKeyHex: string
 	): SignatureVerification {
 		try {
+			if (!digitalSignature.signature || digitalSignature.signature.trim() === '') {
+				return {
+					isValid: false,
+					message: 'No signature provided',
+					verifiedAt: new Date()
+				};
+			}
+
+			const hexPattern = /^[0-9a-fA-F]+$/;
+			if (!hexPattern.test(digitalSignature.signature)) {
+				return {
+					isValid: false,
+					message: 'Invalid signature format',
+					verifiedAt: new Date()
+				};
+			}
+
 			const currentHash = SHA3.sha256(data);
 			const currentHashHex = SHA3Utils.toHex(currentHash);
 			
@@ -124,7 +169,19 @@ export class SignatureService {
 			}
 			
 			const publicKey = RSAUtils.publicKeyFromHex(publicKeyHex);
-			const signature = BigInt('0x' + digitalSignature.signature);
+			
+			// ⭐ FIXED: Safe BigInt conversion
+			let signature: bigint;
+			try {
+				signature = BigInt('0x' + digitalSignature.signature);
+			} catch (bigIntError) {
+				return {
+					isValid: false,
+					message: 'Cannot parse signature',
+					verifiedAt: new Date()
+				};
+			}
+
 			const isValid = RSAUtils.verifyBytes(currentHash, signature, publicKey);
 			
 			return {
