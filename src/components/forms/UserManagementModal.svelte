@@ -6,19 +6,128 @@
 	let activeTab = 'advisors'; // 'advisors', 'students', 'register'
 	let registerType = 'dosen'; // 'dosen', 'student'
 
+	// Auto NIM generation
+	let selectedProgram = 'Teknik_Informatika'; // For new students
+	let entryYear = new Date().getFullYear(); // Current year
+	let generatedNIM = '';
+
+	// Confirmation states
+	let showDeleteConfirm = false;
+	let userToDelete: any = null;
+	let deleteType = ''; // 'advisor' or 'student'
+
+	// Generate NIM when program or year changes
+	$: if (registerType === 'student') {
+		generateNIM();
+	}
+
+	// Get students for each advisor
+	$: advisorsWithStudents = allAdvisors.map(advisor => ({
+		...advisor,
+		students: allStudents.filter(student => student.DosenId === advisor.id)
+	}));
+
+	// Get user's program studi for NIM generation (passed from parent component)
+	export let currentUserProgram: string = 'Teknik_Informatika'; // This should be passed from HeadDashboard
+
 	function closeModal() {
 		showModal = false;
 		activeTab = 'advisors';
 		registerType = 'dosen';
+		resetDeleteState();
 	}
 
 	function setActiveTab(tab: string) {
 		activeTab = tab;
+		resetDeleteState();
+	}
+
+	function resetDeleteState() {
+		showDeleteConfirm = false;
+		userToDelete = null;
+		deleteType = '';
+	}
+
+	function generateNIM() {
+		if (registerType !== 'student') return;
+		
+		// Use current user's program for NIM generation
+		const programCode = currentUserProgram === 'Teknik_Informatika' ? '135' : '182';
+		
+		// Get last 2 digits of entry year
+		const yearSuffix = entryYear.toString().slice(-2);
+		
+		// Find existing students with same program and year to get next number
+		const samePattern = allStudents.filter(student => 
+			student.nim?.startsWith(programCode + yearSuffix)
+		);
+		
+		// Get the next available number (001, 002, etc.)
+		const nextNumber = (samePattern.length + 1).toString().padStart(3, '0');
+		
+		generatedNIM = programCode + yearSuffix + nextNumber;
+	}
+
+	function confirmDelete(user: any, type: 'advisor' | 'student') {
+		userToDelete = user;
+		deleteType = type;
+		showDeleteConfirm = true;
+	}
+
+	function cancelDelete() {
+		resetDeleteState();
 	}
 </script>
 
 {#if showModal}
-	<!-- Modal backdrop -->
+	<!-- Delete Confirmation Modal -->
+	{#if showDeleteConfirm}
+		<div class="fixed inset-0 z-60 overflow-y-auto">
+			<div class="flex min-h-screen items-center justify-center p-4">
+				<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+				<div class="relative bg-white rounded-lg shadow-xl w-full max-w-md">
+					<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
+						<h3 class="text-lg font-semibold text-gray-900">Konfirmasi Hapus</h3>
+					</div>
+					<div class="p-6">
+						<p class="text-sm text-gray-600 mb-4">
+							Apakah Anda yakin ingin menghapus {deleteType === 'advisor' ? 'dosen wali' : 'mahasiswa'} 
+							<strong>{userToDelete?.fullName}</strong>?
+						</p>
+						{#if deleteType === 'advisor' && userToDelete?.students?.length > 0}
+							<div class="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+								<p class="text-sm text-yellow-800">
+									⚠️ Dosen ini memiliki {userToDelete.students.length} mahasiswa bimbingan. 
+									Hubungan bimbingan akan dihapus.
+								</p>
+							</div>
+						{/if}
+						<div class="flex gap-3 justify-end">
+							<button 
+								type="button"
+								on:click={cancelDelete}
+								class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
+							>
+								Batal
+							</button>
+							<form method="POST" action="?/deleteUser" class="inline">
+								<input type="hidden" name="userId" value={userToDelete?.id} />
+								<input type="hidden" name="userType" value={deleteType} />
+								<button 
+									type="submit"
+									class="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+								>
+									Ya, Hapus
+								</button>
+							</form>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Main Modal -->
 	<div class="fixed inset-0 z-50 overflow-y-auto">
 		<div class="flex min-h-screen items-center justify-center p-4">
 			<!-- Backdrop overlay -->
@@ -28,7 +137,7 @@
 			></div>
 
 			<!-- Modal panel -->
-			<div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl">
+			<div class="relative bg-white rounded-lg shadow-xl w-full max-w-6xl">
 				
 				<!-- Modal header -->
 				<div class="bg-white px-6 py-4 border-b border-gray-200 rounded-t-lg">
@@ -103,14 +212,33 @@
 										</tr>
 									</thead>
 									<tbody class="bg-white divide-y divide-gray-200">
-										{#each allAdvisors as advisor}
+										{#each advisorsWithStudents as advisor}
 											<tr>
 												<td class="px-4 py-3 text-sm text-gray-900">{advisor.fullName}</td>
 												<td class="px-4 py-3 text-sm text-gray-500">{advisor.username}</td>
-												<td class="px-4 py-3 text-sm text-gray-500">{advisor.students?.length || 0} orang</td>
-												<td class="px-4 py-3 text-sm">
+												<td class="px-4 py-3 text-sm text-gray-500">
+													{#if advisor.students.length > 0}
+														<div class="space-y-1">
+															{#each advisor.students as student}
+																<div class="text-xs bg-blue-50 px-2 py-1 rounded">
+																	{student.fullName} ({student.nim})
+																</div>
+															{/each}
+														</div>
+													{:else}
+														<span class="text-gray-400 italic">Tidak ada</span>
+													{/if}
+												</td>
+												<td class="px-4 py-3 text-sm space-x-2">
 													<button class="text-indigo-600 hover:text-indigo-900 text-sm">
 														Edit
+													</button>
+													<button 
+														type="button"
+														on:click={() => confirmDelete(advisor, 'advisor')}
+														class="text-red-600 hover:text-red-900 text-sm"
+													>
+														Hapus
 													</button>
 												</td>
 											</tr>
@@ -147,12 +275,13 @@
 												<td class="px-4 py-3 text-sm text-gray-900">{student.fullName}</td>
 												<td class="px-4 py-3 text-sm text-gray-500">{student.nim}</td>
 												<td class="px-4 py-3 text-sm text-gray-500">
-													{student.advisor?.fullName || 'Belum ada'}
-												</td>
-												<td class="px-4 py-3 text-sm">
-													<form method="POST" action="?/assignAdvisor" class="inline">
+													<form method="POST" action="?/assignAdvisor" class="flex items-center gap-2">
 														<input type="hidden" name="studentId" value={student.id} />
-														<select name="advisorId" class="text-xs rounded border-gray-300">
+														<select 
+															name="advisorId" 
+															class="text-xs rounded border-gray-300 flex-1"
+															value={student.DosenId || ''}
+														>
 															<option value="">Pilih Dosen Wali</option>
 															{#each allAdvisors as advisor}
 																<option value={advisor.id} selected={student.DosenId === advisor.id}>
@@ -160,10 +289,19 @@
 																</option>
 															{/each}
 														</select>
-														<button type="submit" class="ml-2 text-indigo-600 hover:text-indigo-900 text-xs">
+														<button type="submit" class="text-indigo-600 hover:text-indigo-900 text-xs px-2 py-1 border rounded">
 															Update
 														</button>
 													</form>
+												</td>
+												<td class="px-4 py-3 text-sm">
+													<button 
+														type="button"
+														on:click={() => confirmDelete(student, 'student')}
+														class="text-red-600 hover:text-red-900 text-sm"
+													>
+														Hapus
+													</button>
 												</td>
 											</tr>
 										{:else}
@@ -210,7 +348,13 @@
 
 							<!-- Registration Form -->
 							<form method="POST" action="?/registerUser" class="space-y-4">
+								<!-- Hidden fields for proper form submission -->
 								<input type="hidden" name="userType" value={registerType} />
+								{#if registerType === 'dosen'}
+									<input type="hidden" name="role" value="Dosen_Wali" />
+								{:else}
+									<input type="hidden" name="role" value="Mahasiswa" />
+								{/if}
 								
 								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 									<div>
@@ -247,29 +391,47 @@
 								</div>
 
 								{#if registerType === 'student'}
+									<!-- Program restriction message -->
+									<div class="bg-blue-50 border border-blue-200 rounded-md p-3">
+										<p class="text-sm text-blue-800">
+											ℹ️ Mahasiswa akan didaftarkan ke program studi yang sama dengan Anda (Kepala Program Studi).
+										</p>
+									</div>
+
 									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 										<div>
-											<label class="block text-sm font-medium text-gray-700">NIM</label>
+											<label class="block text-sm font-medium text-gray-700">Tahun Masuk</label>
 											<input 
-												type="text" 
-												name="nim" 
-												required 
+												type="number" 
+												bind:value={entryYear}
+												min="2000"
+												max="2030"
 												class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-												placeholder="Nomor Induk Mahasiswa"
 											/>
 										</div>
 										<div>
-											<label class="block text-sm font-medium text-gray-700">Dosen Wali</label>
-											<select 
-												name="advisorId"
-												class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-											>
-												<option value="">Pilih Dosen Wali (opsional)</option>
-												{#each allAdvisors as advisor}
-													<option value={advisor.id}>{advisor.fullName}</option>
-												{/each}
-											</select>
+											<label class="block text-sm font-medium text-gray-700">NIM (Auto-generated)</label>
+											<input 
+												type="text" 
+												name="nim" 
+												value={generatedNIM}
+												readonly
+												required 
+												class="mt-1 block w-full rounded-md border-gray-300 bg-gray-50 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+											/>
 										</div>
+									</div>
+									<div>
+										<label class="block text-sm font-medium text-gray-700">Dosen Wali</label>
+										<select 
+											name="advisorId"
+											class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+										>
+											<option value="">Pilih Dosen Wali (opsional)</option>
+											{#each allAdvisors as advisor}
+												<option value={advisor.id}>{advisor.fullName}</option>
+											{/each}
+										</select>
 									</div>
 								{/if}
 

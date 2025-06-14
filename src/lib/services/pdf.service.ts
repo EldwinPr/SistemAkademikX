@@ -14,7 +14,7 @@ import type {
 
 export class PDFService {
 	/**
-	 * Generate transcript PDF with real PDF structure
+	 * Generate transcript PDF with proper PDF structure
 	 */
 	static generateTranscript(
 		record: AcademicRecord,
@@ -23,8 +23,7 @@ export class PDFService {
 		generatedBy: string = 'system'
 	): GeneratedTranscript {
 		try {
-			const pdfContent = this.createRealPDFContent(record, signatureData, config);
-			const pdfData = this.stringToPDFBytes(pdfContent);
+			const pdfData = this.createValidPDF(record, signatureData, config);
 			
 			return {
 				id: this.generateId(),
@@ -42,19 +41,19 @@ export class PDFService {
 	}
 
 	/**
-	 * Create real PDF content with proper PDF structure
+	 * Create a valid PDF file with proper structure
 	 */
-	private static createRealPDFContent(record: AcademicRecord, signatureData?: any, config?: PDFTranscriptConfig): string {
+	private static createValidPDF(record: AcademicRecord, signatureData?: any, config?: PDFTranscriptConfig): Uint8Array {
 		// Calculate total SKS
 		const totalSKS = record.courses.reduce((sum, course) => sum + course.credits, 0);
 		
-		// Create PDF content string for stream
+		// Create PDF content stream
 		let contentStream = `BT
-/F1 16 Tf
+/F1 20 Tf
 50 750 Td
 (${config?.headerText || 'INSTITUT TEKNOLOGI BANDUNG'}) Tj
 0 -30 Td
-/F1 14 Tf
+/F1 16 Tf
 (TRANSKRIP AKADEMIK) Tj
 0 -40 Td
 /F1 12 Tf
@@ -70,12 +69,14 @@ export class PDFService {
 (DAFTAR MATA KULIAH:) Tj`;
 
 		// Add courses
+		let yOffset = -15;
 		record.courses.forEach((course, index) => {
 			contentStream += `
-0 -15 Td
+0 ${yOffset} Td
 (${index + 1}. ${this.escapePDFString(course.code)} - ${this.escapePDFString(course.name)}) Tj
 0 -12 Td
 (   ${course.credits} SKS - Nilai: ${course.grade}) Tj`;
+			yOffset = -15;
 		});
 
 		// Add signature if provided
@@ -114,18 +115,23 @@ export class PDFService {
 		contentStream += `
 ET`;
 
-		const streamLength = new TextEncoder().encode(contentStream).length;
+		// Calculate content stream length
+		const streamBytes = new TextEncoder().encode(contentStream);
+		const streamLength = streamBytes.length;
 
-		// Build complete PDF with proper structure
-		const pdf = `%PDF-1.4
-1 0 obj
+		// Create complete PDF structure
+		const pdfHeader = '%PDF-1.4\n';
+		
+		const catalog = `1 0 obj
 <<
 /Type /Catalog
 /Pages 2 0 R
 >>
 endobj
 
-2 0 obj
+`;
+
+		const pages = `2 0 obj
 <<
 /Type /Pages
 /Kids [3 0 R]
@@ -133,7 +139,9 @@ endobj
 >>
 endobj
 
-3 0 obj
+`;
+
+		const page = `3 0 obj
 <<
 /Type /Page
 /Parent 2 0 R
@@ -147,7 +155,9 @@ endobj
 >>
 endobj
 
-4 0 obj
+`;
+
+		const font = `4 0 obj
 <<
 /Type /Font
 /Subtype /Type1
@@ -155,7 +165,9 @@ endobj
 >>
 endobj
 
-5 0 obj
+`;
+
+		const content = `5 0 obj
 <<
 /Length ${streamLength}
 >>
@@ -164,24 +176,38 @@ ${contentStream}
 endstream
 endobj
 
-xref
+`;
+
+		// Calculate cross-reference positions
+		const headerLength = new TextEncoder().encode(pdfHeader).length;
+		const catalogStart = headerLength;
+		const pagesStart = catalogStart + new TextEncoder().encode(catalog).length;
+		const pageStart = pagesStart + new TextEncoder().encode(pages).length;
+		const fontStart = pageStart + new TextEncoder().encode(page).length;
+		const contentStart = fontStart + new TextEncoder().encode(font).length;
+		const xrefStart = contentStart + new TextEncoder().encode(content).length;
+
+		const xref = `xref
 0 6
 0000000000 65535 f 
-0000000010 00000 n 
-0000000053 00000 n 
-0000000125 00000 n 
-0000000348 00000 n 
-0000000565 00000 n 
+${catalogStart.toString().padStart(10, '0')} 00000 n 
+${pagesStart.toString().padStart(10, '0')} 00000 n 
+${pageStart.toString().padStart(10, '0')} 00000 n 
+${fontStart.toString().padStart(10, '0')} 00000 n 
+${contentStart.toString().padStart(10, '0')} 00000 n 
 trailer
 <<
 /Size 6
 /Root 1 0 R
 >>
 startxref
-${565 + streamLength + 50}
+${xrefStart}
 %%EOF`;
 
-		return pdf;
+		// Combine all parts
+		const completePDF = pdfHeader + catalog + pages + page + font + content + xref;
+		
+		return new TextEncoder().encode(completePDF);
 	}
 
 	/**
@@ -193,14 +219,8 @@ ${565 + streamLength + 50}
 			.replace(/\(/g, '\\(')
 			.replace(/\)/g, '\\)')
 			.replace(/\r/g, '\\r')
-			.replace(/\n/g, '\\n');
-	}
-
-	/**
-	 * Convert string to PDF bytes
-	 */
-	private static stringToPDFBytes(pdfString: string): Uint8Array {
-		return new TextEncoder().encode(pdfString);
+			.replace(/\n/g, '\\n')
+			.replace(/\t/g, '\\t');
 	}
 
 	/**

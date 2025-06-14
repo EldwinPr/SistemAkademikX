@@ -87,14 +87,40 @@
                 formData.append('rc4Key', generatedRC4Key);
             }
 
-            const response = await fetch('/api/pdf/generate', {
-                method: 'POST',
-                body: formData
+            console.log('Sending PDF generation request:', {
+                recordId: selectedRecordId,
+                encrypt: shouldEncrypt,
+                hasKey: !!generatedRC4Key
             });
 
+            const response = await fetch('/api/pdf/generate', {
+                method: 'POST',
+                body: formData,
+                // Add proper headers and credentials
+                credentials: 'same-origin',
+                headers: {
+                    // Don't set Content-Type for FormData - browser will set it with boundary
+                }
+            });
+
+            console.log('PDF generation response status:', response.status);
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-                throw new Error(errorData.message || 'Failed to generate PDF');
+                let errorMessage = 'Failed to generate PDF';
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.message || errorMessage;
+                } catch (parseError) {
+                    // If JSON parsing fails, use status text
+                    errorMessage = response.statusText || errorMessage;
+                }
+                throw new Error(errorMessage);
+            }
+
+            // Check if response is actually a PDF
+            const contentType = response.headers.get('Content-Type');
+            if (!contentType || !contentType.includes('application/pdf')) {
+                throw new Error('Server did not return a PDF file');
             }
 
             // Create download link
@@ -107,13 +133,19 @@
             const contentDisposition = response.headers.get('Content-Disposition');
             const filename = contentDisposition 
                 ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
-                : `transcript_${Date.now()}.pdf`;
+                : `transcript_${selectedRecordId}_${Date.now()}.pdf`;
             
             link.download = filename;
+            
+            // Trigger download
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            
+            // Clean up the blob URL
             window.URL.revokeObjectURL(url);
+
+            console.log('PDF download triggered successfully');
 
             // Close form after successful download
             closeForm();
@@ -121,7 +153,7 @@
         } catch (error) {
             console.error('PDF generation error:', error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            alert(`Error: ${errorMessage}`);
+            alert(`Error generating PDF: ${errorMessage}`);
         } finally {
             isGenerating = false;
         }

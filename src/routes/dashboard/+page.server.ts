@@ -502,7 +502,135 @@ export const actions: Actions = {
 			console.error("Group decrypt error:", error);
 			return fail(500, { error: error.message || 'Group decryption failed due to server error.' });
 		}
-	},	
+	},removeSignature: async ({ request, locals }) => {
+		if (locals.user?.permissions.canSignRecords !== true) {
+			return fail(403, { error: 'Forbidden: You do not have permission to manage signatures.' });
+		}
+
+		try {
+			const formData = await request.formData();
+			const recordId = formData.get('recordId') as string;
+
+			if (!recordId) {
+				return fail(400, { error: 'Record ID is required.' });
+			}
+
+			const record = await db.transkrip.findUnique({
+				where: { id: recordId },
+				include: { 
+					student: { 
+						select: { 
+							fullName: true, 
+							programStudi: true 
+						} 
+					} 
+				}
+			});
+
+			if (!record) {
+				return fail(404, { error: 'Academic record not found.' });
+			}
+
+			// Check if record belongs to the same program as the head
+			if (record.student.programStudi !== locals.user.user.programStudi) {
+				return fail(403, { error: 'You can only manage signatures for your own study program.' });
+			}
+
+			if (!record.digitalSignature) {
+				return fail(400, { error: 'This transcript is not signed yet.' });
+			}
+
+			// Remove the digital signature
+			await db.transkrip.update({
+				where: { id: recordId },
+				data: {
+					digitalSignature: '' // Empty string means no signature
+				}
+			});
+
+			return { 
+				success: true, 
+				message: `Tanda tangan digital untuk transkrip ${record.student.fullName} berhasil dihapus.` 
+			};
+
+		} catch (error: any) {
+			console.error("Error removing signature:", error);
+			return fail(500, { error: error.message || 'An internal error occurred while removing signature.' });
+		}
+	},deleteTranscript: async ({ request, locals }) => {
+		if (locals.user?.user.role !== 'Kepala_Program_Studi') {
+			return fail(403, { error: 'Forbidden: Only the Head of Study Program can delete transcripts.' });
+		}
+
+		try {
+			const formData = await request.formData();
+			const recordId = formData.get('recordId') as string;
+
+			if (!recordId) {
+				return fail(400, { error: 'Record ID is required.' });
+			}
+
+			// Get the record first to check ownership and get student info
+			const record = await db.transkrip.findUnique({
+				where: { id: recordId },
+				include: {
+					student: {
+						select: {
+							id: true,
+							fullName: true,
+							nim: true,
+							programStudi: true
+						}
+					}
+				}
+			});
+
+			if (!record) {
+				return fail(404, { error: 'Transcript record not found.' });
+			}
+
+			// Check if the record belongs to the same program as the head
+			if (record.student.programStudi !== locals.user.user.programStudi) {
+				return fail(403, { error: 'You can only delete transcripts from your own study program.' });
+			}
+
+			// Use transaction to ensure all related data is deleted properly
+			await db.$transaction(async (tx) => {
+				// Delete direct access keys
+				await tx.directKey.deleteMany({
+					where: { recordId: recordId }
+				});
+
+				// Delete secret shares
+				await tx.secretShare.deleteMany({
+					where: { recordId: recordId }
+				});
+
+				// Finally, delete the transcript record itself
+				await tx.transkrip.delete({
+					where: { id: recordId }
+				});
+			});
+
+			return { 
+				success: true, 
+				message: `Transkrip ${record.student.fullName} (${record.student.nim}) berhasil dihapus beserta semua data terkait.` 
+			};
+
+		} catch (error: any) {
+			console.error("Error deleting transcript:", error);
+			
+			if (error.code === 'P2025') {
+				return fail(404, { error: 'Transcript record not found or already deleted.' });
+			}
+			
+			if (error.code === 'P2003') {
+				return fail(409, { error: 'Cannot delete transcript due to existing relationships. Please contact administrator.' });
+			}
+			
+			return fail(500, { error: error.message || 'An internal error occurred during transcript deletion.' });
+		}
+	},
 	signRecord: async ({ request, locals }) => {
 		if (locals.user?.permissions.canSignRecords !== true) {
 			return fail(403, { error: 'Forbidden: You do not have permission to sign records.' });
@@ -523,10 +651,13 @@ export const actions: Actions = {
 			});
 
 			if (!directKey) {
-				return fail(403, { error: 'You do not have direct access to decrypt this record for re-signing.' });
+				return fail(403, { error: 'You do not have direct access to this record for signing.' });
 			}
 
-			const record = await db.transkrip.findUnique({ where: { id: recordId } });
+			const record = await db.transkrip.findUnique({ 
+				where: { id: recordId },
+				include: { student: { select: { fullName: true } } }
+			});
 			if (!record) {
 				return fail(404, { error: 'Academic record not found.' });
 			}
@@ -537,7 +668,7 @@ export const actions: Actions = {
 			const newSignature = SignatureService.signAcademicRecord(
 				decryptedRecord,
 				headUser.privateKey,
-				record.keyId // Use existing keyId
+				record.keyId
 			);
 
 			await db.transkrip.update({
@@ -547,15 +678,17 @@ export const actions: Actions = {
 				}
 			});
 
-			return { success: true, message: 'Record has been successfully re-signed.' };
+			const action = record.digitalSignature ? 'ditandatangani ulang' : 'ditandatangani';
+			return { 
+				success: true, 
+				message: `Transkrip ${record.student.fullName} berhasil ${action}.` 
+			};
 
 		} catch (error: any) {
-			console.error("Error re-signing record:", error);
-			return fail(500, { error: error.message || 'An internal error occurred during re-signing.' });
+			console.error("Error signing record:", error);
+			return fail(500, { error: error.message || 'An internal error occurred during signing.' });
 		}
-	},
-
-	assignAdvisor: async ({ request, locals }) => {
+	},assignAdvisor: async ({ request, locals }) => {
 		if (locals.user?.user.role !== 'Kepala_Program_Studi') {
 			return fail(403, { error: 'Forbidden: Only the Head of Study Program can assign advisors.' });
 		}
@@ -588,9 +721,7 @@ export const actions: Actions = {
 			console.error("Error assigning advisor:", error);
 			return fail(500, { error: error.message || 'An internal error occurred.' });
 		}
-	},
-
-	registerUser: async ({ request, locals }) => {
+	},registerUser: async ({ request, locals }) => {
 		if (locals.user?.user.role !== 'Kepala_Program_Studi') {
 			return fail(403, { error: 'Forbidden: Only the Head of Study Program can register new users.' });
 		}
@@ -600,45 +731,221 @@ export const actions: Actions = {
 			const username = formData.get('username') as string;
 			const password = formData.get('password') as string;
 			const fullName = formData.get('fullName') as string;
-			const role = formData.get('role') as Role;
+			const userType = formData.get('userType') as string;
+			const role = formData.get('role') as string;
 			const nim = formData.get('nim') as string | undefined;
+			const advisorId = formData.get('advisorId') as string | undefined;
 
-			if (!username || !password || !fullName || !role) {
+			// Basic validation
+			if (!username || !password || !fullName || !userType || !role) {
 				return fail(400, { error: 'Username, password, full name, and role are required.' });
 			}
 
-			if (role === 'Mahasiswa' && !nim) {
-				return fail(400, { error: 'NIM is required for new students.' });
+			// Role validation based on userType
+			if (userType === 'dosen' && role !== 'Dosen_Wali') {
+				return fail(400, { error: 'Invalid role for dosen user type.' });
 			}
 
+			if (userType === 'student' && role !== 'Mahasiswa') {
+				return fail(400, { error: 'Invalid role for student user type.' });
+			}
+
+			// Check for duplicate Kepala Program Studi (application-level constraint)
+			if (role === 'Kepala_Program_Studi') {
+				const existingHead = await db.user.findFirst({
+					where: {
+						role: 'Kepala_Program_Studi',
+						programStudi: locals.user.user.programStudi
+					}
+				});
+
+				if (existingHead) {
+					return fail(409, { 
+						error: `Kepala Program Studi untuk ${locals.user.user.programStudi} sudah ada. Hanya boleh ada satu Kaprodi per program studi.` 
+					});
+				}
+			}
+
+			// Student-specific validation
+			if (userType === 'student') {
+				if (!nim) {
+					return fail(400, { error: 'NIM is required for new students.' });
+				}
+
+				// Validate NIM format
+				const nimRegex = /^(135|182)\d{5}$/;
+				if (!nimRegex.test(nim)) {
+					return fail(400, { error: 'Invalid NIM format. Must be 135XXXXX (IF) or 182XXXXX (STI).' });
+				}
+
+				// Check if NIM already exists
+				const existingNIM = await db.user.findFirst({
+					where: { nim: nim }
+				});
+
+				if (existingNIM) {
+					return fail(409, { error: 'NIM already exists. Please generate a new one.' });
+				}
+			}
+
+			// Check if username already exists
+			const existingUser = await db.user.findUnique({
+				where: { username }
+			});
+
+			if (existingUser) {
+				return fail(409, { error: 'Username already exists. Please choose a different username.' });
+			}
+
+			// Hash password using SHA-3
 			const passwordHash = Array.from(SHA3.sha256(password))
 				.map(b => b.toString(16).padStart(2, '0'))
 				.join('');
 
+			// Generate RSA key pair for the new user
 			const keyPair = RSA.generateKeyPair(2048);
 
-			await db.user.create({
-				data: {
-					username,
-					password: passwordHash,
-					fullName,
-					role,
-					nim: role === 'Mahasiswa' ? nim : null,
-					programStudi: role === 'Mahasiswa' ? locals.user.user.programStudi : null, // Students get the head's program
-					publicKey: RSAUtils.publicKeyToHex(keyPair.publicKey),
-					privateKey: RSAUtils.privateKeyToHex(keyPair.privateKey)
-				}
+			// Prepare user data
+			const userData: any = {
+				username,
+				password: passwordHash,
+				fullName,
+				role: role as Role,
+				publicKey: RSAUtils.publicKeyToHex(keyPair.publicKey),
+				privateKey: RSAUtils.privateKeyToHex(keyPair.privateKey)
+			};
+
+			// Add student-specific fields
+			if (userType === 'student') {
+				userData.nim = nim;
+				userData.programStudi = locals.user.user.programStudi; // Same as head's program
+				userData.DosenId = advisorId || null;
+			}
+			// Dosen_Wali doesn't have programStudi field (they can advise from any program)
+
+			// Create the user
+			const newUser = await db.user.create({
+				data: userData
 			});
 
-			return { success: true, message: `User ${fullName} registered successfully.` };
+			const userTypeDisplay = userType === 'dosen' ? 'Dosen Wali' : 'Mahasiswa';
+			const additionalInfo = userType === 'student' 
+				? ` dengan NIM ${nim} di program ${locals.user.user.programStudi}`
+				: '';
+
+			return { 
+				success: true, 
+				message: `${userTypeDisplay} ${fullName} berhasil didaftarkan${additionalInfo}.` 
+			};
 
 		} catch (error: any) {
 			console.error("Error registering user:", error);
 
 			if (error.code === 'P2002') {
-				return fail(409, { error: 'Username already exists.' });
+				if (error.meta?.target?.includes('username')) {
+					return fail(409, { error: 'Username already exists.' });
+				}
+				if (error.meta?.target?.includes('nim')) {
+					return fail(409, { error: 'NIM already exists.' });
+				}
+				return fail(409, { error: 'Data already exists.' });
 			}
+			
 			return fail(500, { error: error.message || 'An internal error occurred during user registration.' });
 		}
-	}
+	},deleteUser: async ({ request, locals }) => {
+		if (locals.user?.user.role !== 'Kepala_Program_Studi') {
+			return fail(403, { error: 'Forbidden: Only the Head of Study Program can delete users.' });
+		}
+
+		try {
+			const formData = await request.formData();
+			const userId = formData.get('userId') as string;
+			const userType = formData.get('userType') as string;
+
+			if (!userId || !userType) {
+				return fail(400, { error: 'User ID and user type are required.' });
+			}
+
+			// Get user to check they exist and for logging
+			const userToDelete = await db.user.findUnique({ 
+				where: { id: userId },
+				include: {
+					students: userType === 'advisor' ? { select: { fullName: true } } : undefined,
+					records: userType === 'student' ? { select: { id: true } } : undefined
+				}
+			});
+
+			if (!userToDelete) {
+				return fail(404, { error: 'User not found.' });
+			}
+
+			// Additional safety checks
+			if (userToDelete.role === 'Kepala_Program_Studi') {
+				return fail(403, { error: 'Cannot delete another Head of Study Program.' });
+			}
+
+			if (userType === 'advisor' && userToDelete.role !== 'Dosen_Wali') {
+				return fail(400, { error: 'User type mismatch: expected Dosen Wali.' });
+			}
+
+			if (userType === 'student' && userToDelete.role !== 'Mahasiswa') {
+				return fail(400, { error: 'User type mismatch: expected Mahasiswa.' });
+			}
+
+			// Use transaction to ensure data consistency
+			await db.$transaction(async (tx) => {
+				if (userType === 'advisor') {
+					// Remove advisor relationship from students
+					await tx.user.updateMany({
+						where: { DosenId: userId },
+						data: { DosenId: null }
+					});
+					
+					// Delete secret shares where this advisor participated
+					await tx.secretShare.deleteMany({
+						where: { advisorId: userId }
+					});
+				} else if (userType === 'student') {
+					// Delete all related data for student
+					await tx.directKey.deleteMany({
+						where: { userId: userId }
+					});
+					
+					// Delete academic records (this will cascade to secret shares)
+					await tx.transkrip.deleteMany({
+						where: { studentId: userId }
+					});
+				}
+
+				// Delete sessions
+				await tx.session.deleteMany({
+					where: { userId: userId }
+				});
+
+				// Finally delete the user
+				await tx.user.delete({
+					where: { id: userId }
+				});
+			});
+
+			const deletedInfo = userType === 'advisor' 
+				? `${userToDelete.fullName} and removed advisor relationship from ${userToDelete.students?.length || 0} students`
+				: `${userToDelete.fullName} and all related academic data`;
+
+			return { 
+				success: true, 
+				message: `Successfully deleted ${deletedInfo}.` 
+			};
+
+		} catch (error: any) {
+			console.error("Error deleting user:", error);
+			
+			if (error.code === 'P2003') {
+				return fail(409, { error: 'Cannot delete user due to existing relationships. Please contact administrator.' });
+			}
+			
+			return fail(500, { error: error.message || 'An internal error occurred during user deletion.' });
+		}
+	},
 };

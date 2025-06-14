@@ -43,8 +43,6 @@ model User {
   directKeys   DirectKey[]
   sessions     Session[]
   
-  // FIXED: New constraints that properly handle the business rules
-  @@unique([role, programStudi], name: "unique_head_per_program")
   @@map("users")
 }
 
