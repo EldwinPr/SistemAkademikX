@@ -1,5 +1,3 @@
-//src/routes/api/records/[recordId]/+server.ts
-
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/server/database';
@@ -7,7 +5,6 @@ import { CryptoService } from '$lib/services/crypto.service';
 import { SignatureService } from '$lib/services/signature.service';
 import { SHA3Utils } from '$lib/cryptography/SHA3';
 
-//Menangani permintaan GET untuk mengambil, mendekripsi, dan memverifikasi satu record transkrip akademik.
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const user = locals.user?.user;
 	if (!user) {
@@ -20,7 +17,6 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	}
 
 	try {
-		// Ambil private key pengguna yang sedang login untuk dekripsi
 		const fullUser = await db.user.findUnique({ where: { id: user.id } });
 		if (!fullUser?.privateKey) {
 			throw error(500, 'Server Error: Private key pengguna tidak ditemukan.');

@@ -1,4 +1,3 @@
-<!-- src/routes/dashboard/+page.svelte -->
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import StudentDashboard from '../../components/dashboards/StudentDashboard.svelte';

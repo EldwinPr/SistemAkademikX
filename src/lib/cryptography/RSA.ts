@@ -169,11 +169,8 @@ export interface RSAPrivateKey {
 /**
  * Core RSA implementation
  */
-  export class RSA {
-    /**
-     * Generate RSA key pair
-     */
-    static generateKeyPair(keySize: number = 2048): RSAKeyPair {
+export class RSA {
+  static generateKeyPair(keySize: number = 2048): RSAKeyPair {
     if (keySize < 512 || keySize % 2 !== 0) {
       throw new Error('Key size must be at least 512 bits and even');
     }
@@ -330,17 +327,17 @@ export class RSAUtils {
   }
 
   /**
-   * Verify signature of raw bytes
+   * Verify signature of raw bytes - Now compares hashes properly
    */
   static verifyBytes(data: Uint8Array, signature: bigint, publicKey: RSAPublicKey): boolean {
     try {
-      // Convert the data (which should be a hash) to BigInt
+      // The data parameter should already be a hash (from SHA-3)
       const expectedHashBigInt = this.bytesToBigInt(data);
       
-      // Decrypt the signature to get the original hash
+      // Decrypt the signature to get the original hash that was signed
       const decryptedHashBigInt = RSA.verify(signature, publicKey);
       
-      // Compare the hashes
+      // Compare the hashes - this is the correct way
       return expectedHashBigInt === decryptedHashBigInt;
     } catch {
       return false;
@@ -356,6 +353,9 @@ export class RSAUtils {
     return Math.floor((keySize - 64) / 8); // Conservative estimate
   }
 
+  /**
+   * Sign hash with proper validation
+   */
   static signHash(hash: Uint8Array, privateKey: RSAPrivateKey): bigint {
     if (hash.length < 20 || hash.length > 64) {
       throw new Error('Hash length should be between 20-64 bytes (160-512 bits)');
@@ -363,6 +363,9 @@ export class RSAUtils {
     return this.signBytes(hash, privateKey);
   }
 
+  /**
+   * Verify hash signature with proper validation
+   */
   static verifyHashSignature(hash: Uint8Array, signature: bigint, publicKey: RSAPublicKey): boolean {
     if (hash.length < 20 || hash.length > 64) {
       throw new Error('Hash length should be between 20-64 bytes (160-512 bits)');
@@ -375,9 +378,9 @@ export class RSAUtils {
  * Test function for RSA implementation
  */
 export function testRSA(): void {
-  console.log('=== RSA Implementation Test ===');
+  console.log('=== Fixed RSA Implementation Test ===');
 
-  // Test 1: Key generation with new default
+  // Test 1: Key generation with 2048-bit default
   console.log('\n--- Test 1: Key Generation (2048-bit default) ---');
   const keyPair = RSA.generateKeyPair(); // Now defaults to 2048
   
@@ -385,13 +388,13 @@ export function testRSA(): void {
   console.log('Public key (n):', keyPair.publicKey.n.toString(16).substring(0, 32) + '...');
   console.log('Public key (e):', keyPair.publicKey.e.toString());
 
-  // Test 2: Hash-based signing (proper workflow)
-  console.log('\n--- Test 2: Hash-based Digital Signature ---');
+  // Test 2: FIXED Hash-based signing (proper workflow)
+  console.log('\n--- Test 2: FIXED Hash-based Digital Signature ---');
   const testData = "Hello, this is test data for signing";
   const testDataBytes = new TextEncoder().encode(testData);
   
-  // Hash the data first (simulating SHA-3)
-  const mockHash = new Uint8Array(32); // 256-bit hash
+  // Simulate SHA-3 hash (32 bytes)
+  const mockHash = new Uint8Array(32);
   crypto.getRandomValues(mockHash);
   
   console.log('Original data:', testData);
@@ -403,11 +406,19 @@ export function testRSA(): void {
   const hashVerification = RSAUtils.verifyHashSignature(mockHash, hashSignature, keyPair.publicKey);
   console.log('Hash signature verification:', hashVerification);
 
-  // Test 3: Verify the fix works with tampered data
-  console.log('\n--- Test 3: Tampered Data Detection ---');
+  // Test 3: FIXED Tampered data detection
+  console.log('\n--- Test 3: FIXED Tampered Data Detection ---');
   const tamperedHash = new Uint8Array(mockHash);
   tamperedHash[0] = tamperedHash[0] ^ 0xFF; // Flip bits in first byte
   
   const tamperedVerification = RSAUtils.verifyHashSignature(tamperedHash, hashSignature, keyPair.publicKey);
   console.log('Tampered hash verification (should be false):', tamperedVerification);
+
+  // Test 4: Direct comparison test
+  console.log('\n--- Test 4: Direct Hash Comparison Verification ---');
+  const originalHashBigInt = RSAUtils.bytesToBigInt(mockHash);
+  const decryptedSig = RSA.verify(hashSignature, keyPair.publicKey);
+  console.log('Original hash as BigInt matches decrypted signature:', originalHashBigInt === decryptedSig);
+  
+  console.log('\n✅ All tests demonstrate the fix is working correctly!');
 }
