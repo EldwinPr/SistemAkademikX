@@ -129,8 +129,3 @@ Aplikasi akan dapat diakses melalui `http://localhost:5173`.
     ```bash
     npm run preview
     ```
-
-* **Menjalankan Tes**:
-    ```bash
-    npm run test
-    ```
