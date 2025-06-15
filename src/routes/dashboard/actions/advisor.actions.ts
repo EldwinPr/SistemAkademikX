@@ -225,7 +225,7 @@ export const advisorActions = {
 			const verification = await verifyRecordSignature(decryptedRecord, record);
 
 			return { 
-				groupDecryptSuccess: true, 
+				groupDecryptSuccess: true,
 				decryptedData: decryptedRecord,
 				verificationStatus: verification.isValid ? 'VERIFIED' : 'UNVERIFIED',
 				verificationMessage: verification.message,
@@ -238,7 +238,10 @@ export const advisorActions = {
 
 		} catch (error: any) {
 			console.error('Group decrypt error:', error);
-			return fail(500, { error: 'Group decryption failed.' });
+			return fail(500, { 
+				error: 'Group decryption failed: ' + (error.message || 'Unknown error'),
+				groupDecryptSuccess: false  // Explicitly set to false
+			});
 		}
 	}
 };
