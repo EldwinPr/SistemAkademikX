@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { VerificationStatus } from '$lib/types/academic.types';
-	export let showForm = false;
+
+	export let show = false;
 	export let allStudentsWithTranscripts: any[] = [];
 	export let form: any = null;
 	export let currentUser: any = null;
@@ -69,7 +70,7 @@
 	}
 
 	function closeForm() {
-		showForm = false;
+		show = false;
 		resetForm();
 	}
 
@@ -134,7 +135,7 @@
 	}
 </script>
 
-{#if showForm}
+{#if show}
 	<div class="fixed inset-0 z-50 overflow-y-auto">
 		<div class="flex min-h-screen items-center justify-center p-4">
 			<div class="fixed inset-0 bg-gray-500 bg-opacity-75" on:click={closeForm}></div>
